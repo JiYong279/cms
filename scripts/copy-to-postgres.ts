@@ -11,7 +11,7 @@
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
-import { getTableName, sql, type Table } from "drizzle-orm";
+import { count, getTableName, type Table } from "drizzle-orm";
 import type { Database } from "../src/db";
 import * as schema from "../src/db/schema";
 import { storeFile } from "../src/lib/storage";
@@ -109,7 +109,7 @@ async function main() {
   const source = await openSource();
   const target = await openTarget();
   try {
-    const [{ n: existing }] = (await target.db.execute(sql`select count(*)::int as n from posts`)).rows as { n: number }[];
+    const [{ n: existing }] = await target.db.select({ n: count() }).from(schema.posts);
     if (existing > 0) throw new Error(`${target.label} already has ${existing} article(s); refusing to copy over them.`);
 
     const rows = new Map<Table, Record<string, unknown>[]>();
