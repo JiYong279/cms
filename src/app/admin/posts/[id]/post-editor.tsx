@@ -1,31 +1,40 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState, useTransition } from "react";
+import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { JSONContent } from "@tiptap/react";
 import {
   AlertTriangle,
   ArrowLeft,
+  CalendarClock,
   Check,
   CircleAlert,
+  CircleCheck,
   Clock3,
   ExternalLink,
   ImagePlus,
+  Languages,
   Loader2,
   Lock,
   PanelRightClose,
   PanelRightOpen,
+  PenLine,
+  Send,
+  Sparkles,
   Trash2,
   X,
 } from "lucide-react";
+import { ConfirmPopover } from "@/components/confirm-popover";
 import type { Locale, PostStatus, PostTranslation } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
+import type { ArticleFields, DraftLength } from "@/lib/ai";
 import { STATUS, slugify } from "@/lib/posts";
 import { imageFiles, uploadImage } from "@/lib/upload-client";
 import { cn } from "@/lib/utils";
 import { markTranslationSynced, restorePosts, savePost, trashPostAndLeave } from "../actions";
+import { aiDraft, aiTranslate } from "../ai-actions";
 import { RichTextEditor } from "./rich-text-editor";
 
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
@@ -37,7 +46,8 @@ type Props = {
   translation: PostTranslation | null;
   /** Locale this translation was made from, when that source has changed since. */
   staleSource: Locale | null;
-  site: { id: string; name: string; baseUrl: string; blogPath: string };
+  /** `viewOrigin` is where to open the article to look at it (see viewOrigin in lib/posts). */
+  site: { id: string; name: string; baseUrl: string; viewOrigin: string; blogPath: string };
   categories: { id: string; name: string }[];
   canPublish: boolean;
   /** This language is live and the user may not change live articles. */
@@ -47,6 +57,8 @@ type Props = {
   trashed: { at: Date; by: string | null } | null;
   /** Latest activity on this article, newest first. */
   history: { at: Date; who: string; summary: string }[];
+  /** ANTHROPIC_API_KEY is set, so the AI assistant can run. */
+  aiEnabled: boolean;
 };
 
 const PLACEHOLDER_SLUG = /^bai-viet-[0-9a-f]{8}$/;
@@ -104,6 +116,7 @@ export function PostEditor({
   canDelete,
   trashed,
   history,
+  aiEnabled,
 }: Props) {
   const router = useRouter();
   const { t } = useI18n();
@@ -131,6 +144,12 @@ export function PostEditor({
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(translation?.updatedAt ?? null);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<{ text: string; href?: string } | null>(null);
+  const [publishOpen, setPublishOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(false);
+  const [replacement, setReplacement] = useState<{ html: string; version: number } | null>(null);
+  // The locale the current content was machine-translated from, until it is saved.
+  const [translatedFrom, setTranslatedFrom] = useState<Locale | null>(null);
   const [panelOpen, setPanelOpen] = useState(true);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [saving, startSaving] = useTransition();
@@ -148,13 +167,17 @@ export function PostEditor({
 
   const effectiveSlug = slugTouched ? slug : slugify(title);
 
-  const save = useCallback(() => {
+  /** Saves the form; `next` also moves the article to that status (the header's publish buttons). */
+  const save = useCallback((next?: { status: PostStatus; scheduledAt?: string }) => {
+    const nextStatus = next?.status ?? status;
+    const nextSchedule = next?.scheduledAt ?? scheduledAt;
     setError(null);
+    setNotice(null);
     startSaving(async () => {
       const result = await savePost({
         postId: post.id,
         locale,
-        status,
+        status: nextStatus,
         title,
         slug: effectiveSlug,
         excerpt,
@@ -164,10 +187,11 @@ export function PostEditor({
         metaDescription,
         focusKeyword,
         noindex,
-        scheduledAt: status === "scheduled" && scheduledAt ? new Date(scheduledAt).toISOString() : null,
+        scheduledAt: nextStatus === "scheduled" && nextSchedule ? new Date(nextSchedule).toISOString() : null,
         categoryId: categoryId || null,
         featured,
         coverImageUrl: coverImageUrl.trim(),
+        translatedFrom,
       });
       if (!result.ok) {
         setError(result.error);
@@ -177,8 +201,24 @@ export function PostEditor({
       setSlugTouched(true);
       setSavedAt(new Date(result.savedAt));
       setDirty(false);
+      setTranslatedFrom(null);
+      if (!next) return;
+      setStatus(nextStatus);
+      setScheduledAt(nextSchedule);
+      const p = t.editor.publishing;
+      if (nextStatus === "published") {
+        setNotice({ text: fmt(p.published, { site: site.name }), href: `${site.viewOrigin}${site.blogPath}/${result.slug}` });
+      } else if (nextStatus === "scheduled") {
+        setNotice({ text: fmt(p.scheduled, { time: formatTime(new Date(nextSchedule), t.common.dateLocale) }) });
+      } else {
+        setNotice({ text: p.submitted });
+      }
     });
   }, [
+    t,
+    site.name,
+    site.viewOrigin,
+    site.blogPath,
     post.id,
     locale,
     status,
@@ -194,6 +234,7 @@ export function PostEditor({
     categoryId,
     featured,
     coverImageUrl,
+    translatedFrom,
   ]);
 
   // Ctrl/Cmd + S saves instead of downloading the page.
@@ -227,11 +268,17 @@ export function PostEditor({
   }
 
   const publicUrl = `${site.baseUrl}${site.blogPath}/${effectiveSlug}`;
+  const viewUrl = `${site.viewOrigin}${site.blogPath}/${effectiveSlug}`;
   const words = countWords(content.html);
   const readingMinutes = Math.max(1, Math.round(words / 200));
   const categoryName = categories.find((c) => c.id === categoryId)?.name;
   const outline = sectionTitles(content.json);
   const isLiveOnSite = translation?.status === "published" && !dirty;
+  // Once live (or scheduled), saving is the one action; before that, publishing is.
+  const isLive = translation?.status === "published" || translation?.status === "scheduled";
+  const primaryIsSave = isLive || (!canPublish && translation?.status === "in_review");
+  const otherVersion = locales.find((tab) => tab.locale !== locale);
+  const otherUnpublished = locales.filter((tab) => tab.locale !== locale && tab.status !== "published");
   // The hint names the toolbar button in bold: split the sentence around it.
   const [outlineEmptyBefore, outlineEmptyAfter = ""] = t.editor.panel.outlineEmpty.split("{h2}");
 
@@ -296,7 +343,7 @@ export function PostEditor({
           </span>
           {isLiveOnSite && (
             <a
-              href={publicUrl}
+              href={viewUrl}
               target="_blank"
               rel="noopener noreferrer"
               title={t.editor.header.viewOnSiteTitle}
@@ -308,22 +355,69 @@ export function PostEditor({
           )}
           <button
             type="button"
+            onClick={() => setAiOpen(true)}
+            disabled={saving || locked}
+            title={t.editor.ai.buttonTitle}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-brand-light hover:text-brand disabled:opacity-50"
+          >
+            <Sparkles className="size-4" />
+            {t.editor.ai.button}
+          </button>
+          <button
+            type="button"
             onClick={togglePanel}
             title={t.editor.header.settings}
             className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
           >
             {panelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
           </button>
-          <button
-            type="button"
-            onClick={save}
-            disabled={saving || locked}
-            title={t.editor.header.saveTitle}
-            className="inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover disabled:opacity-50"
-          >
-            {saving && <Loader2 className="size-4 animate-spin" />}
-            {t.common.save}
-          </button>
+          {primaryIsSave ? (
+            <button
+              type="button"
+              onClick={() => save()}
+              disabled={saving || locked}
+              title={isLive ? t.editor.publishing.updateTitle : t.editor.header.saveTitle}
+              className={primaryButton}
+            >
+              {saving && <Loader2 className="size-4 animate-spin" />}
+              {isLive ? t.editor.publishing.update : t.common.save}
+            </button>
+          ) : (
+            <>
+              <button
+                type="button"
+                onClick={() => save()}
+                disabled={saving || locked}
+                title={t.editor.header.saveTitle}
+                className="rounded-lg border border-zinc-200 px-3.5 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
+              >
+                {t.common.save}
+              </button>
+              {canPublish ? (
+                <button
+                  type="button"
+                  onClick={() => setPublishOpen(true)}
+                  disabled={saving || locked}
+                  title={t.editor.publishing.publishTitle}
+                  className={primaryButton}
+                >
+                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  {t.editor.publishing.publish}
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => save({ status: "in_review" })}
+                  disabled={saving || locked}
+                  title={t.editor.publishing.submitTitle}
+                  className={primaryButton}
+                >
+                  {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
+                  {t.editor.publishing.submit}
+                </button>
+              )}
+            </>
+          )}
         </div>
       </header>
 
@@ -424,6 +518,7 @@ export function PostEditor({
 
             <RichTextEditor
               content={content.json}
+              replacement={replacement}
               onChange={edit(setContent)}
               siteId={site.id}
               onError={setError}
@@ -584,23 +679,103 @@ export function PostEditor({
 
           {canDelete && !trashed && (
             <div className="border-t border-zinc-200 px-5 py-5">
-              <button
-                type="button"
-                disabled={deleting}
-                onClick={() => {
-                  if (!window.confirm(t.editor.panel.confirmTrash)) return;
+              <ConfirmPopover
+                message={t.editor.panel.confirmTrash}
+                hint={t.editor.panel.confirmTrashHint}
+                confirmLabel={t.editor.panel.trash}
+                onConfirm={() => {
                   setDirty(false);
                   startDeleting(() => trashPostAndLeave(post.id));
                 }}
-                className="inline-flex items-center gap-1.5 text-sm text-red-600 hover:text-red-800 disabled:opacity-60"
               >
-                <Trash2 className="size-4" />
-                {t.editor.panel.trash}
-              </button>
+                {(open) => (
+                  <button
+                    type="button"
+                    disabled={deleting}
+                    onClick={open}
+                    className="inline-flex items-center gap-1.5 text-sm text-red-600 hover:text-red-800 disabled:opacity-60"
+                  >
+                    <Trash2 className="size-4" />
+                    {t.editor.panel.trash}
+                  </button>
+                )}
+              </ConfirmPopover>
             </div>
           )}
         </aside>
       </div>
+
+      {aiOpen && (
+        <AiDialog
+          postId={post.id}
+          locale={locale}
+          source={otherVersion ? { locale: otherVersion.locale, exists: !!otherVersion.status } : null}
+          enabled={aiEnabled}
+          hasContent={!!title.trim() || countWords(content.html) > 0}
+          initialKeyword={focusKeyword}
+          onClose={() => setAiOpen(false)}
+          onDone={(article, from) => {
+            setAiOpen(false);
+            setTitle(article.title);
+            setExcerpt(article.excerpt);
+            setMetaTitle(article.metaTitle);
+            setMetaDescription(article.metaDescription);
+            setFocusKeyword(article.focusKeyword);
+            if (article.categoryId) setCategoryId(article.categoryId);
+            // A slug not yet chosen follows the new title.
+            if (!slugTouched || PLACEHOLDER_SLUG.test(slug)) setSlugTouched(false);
+            setReplacement({ html: article.html, version: Date.now() });
+            setTranslatedFrom(from);
+            setDirty(true);
+            setError(null);
+            setNotice({ text: t.editor.ai.done });
+          }}
+        />
+      )}
+
+      {publishOpen && (
+        <PublishDialog
+          siteName={site.name}
+          language={t.common.locales[locale]}
+          url={publicUrl}
+          otherUnpublished={otherUnpublished.map((tab) =>
+            fmt(t.editor.publishing.otherUnpublished, {
+              language: t.common.locales[tab.locale],
+              current: t.common.locales[locale],
+            }),
+          )}
+          initialWhen={scheduledAt}
+          onCancel={() => setPublishOpen(false)}
+          onConfirm={(when) => {
+            setPublishOpen(false);
+            save(when ? { status: "scheduled", scheduledAt: when } : { status: "published" });
+          }}
+        />
+      )}
+
+      {notice && !error && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-50 flex w-[min(92vw,32rem)] -translate-x-1/2 items-center gap-3 rounded-xl bg-ink px-4 py-3 text-sm text-white shadow-2xl"
+        >
+          <CircleCheck className="size-4 shrink-0 text-brand-bright" />
+          <span className="flex-1">{notice.text}</span>
+          {notice.href && (
+            <a
+              href={notice.href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="inline-flex items-center gap-1 font-semibold text-brand-bright hover:underline"
+            >
+              {t.editor.publishing.view}
+              <ExternalLink className="size-3.5" />
+            </a>
+          )}
+          <button type="button" onClick={() => setNotice(null)} aria-label={t.common.close} className="text-zinc-400 hover:text-white">
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
 
       {error && (
         <div
@@ -619,6 +794,373 @@ export function PostEditor({
 }
 
 /* ---------- Pieces ---------- */
+
+const primaryButton =
+  "inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover disabled:opacity-50";
+
+/** An hour from now, on the hour, as a datetime-local value. */
+function nextHour() {
+  const date = new Date(Date.now() + 60 * 60_000);
+  date.setMinutes(0, 0, 0);
+  return toLocalInput(date);
+}
+
+/** Confirms where the article goes live, and whether now or at a set time. */
+function PublishDialog({
+  siteName,
+  language,
+  url,
+  otherUnpublished,
+  initialWhen,
+  onCancel,
+  onConfirm,
+}: {
+  siteName: string;
+  language: string;
+  url: string;
+  otherUnpublished: string[];
+  initialWhen: string;
+  onCancel: () => void;
+  /** `when` is a datetime-local value when scheduling, null to publish now. */
+  onConfirm: (when: string | null) => void;
+}) {
+  const { t } = useI18n();
+  const p = t.editor.publishing;
+  const titleId = useId();
+  const [later, setLater] = useState(false);
+  const [when, setWhen] = useState(initialWhen);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onCancel]);
+
+  const options = [
+    { later: false, icon: Send, label: p.now, hint: p.nowHint },
+    { later: true, icon: CalendarClock, label: p.later, hint: p.laterHint },
+  ];
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center bg-ink/30 px-4 pt-[15vh]" onMouseDown={onCancel}>
+      <form
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          onConfirm(later ? when : null);
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="w-full max-w-md rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id={titleId} className="text-lg font-semibold text-ink">
+              {fmt(p.dialogTitle, { site: siteName })}
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">{fmt(p.dialogSubtitle, { language })}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onCancel}
+            aria-label={t.common.close}
+            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <fieldset className="mt-5 grid grid-cols-2 gap-2">
+          {options.map((option) => (
+            <label
+              key={option.label}
+              className={cn(
+                "flex cursor-pointer flex-col gap-1 rounded-xl border p-3.5 transition",
+                later === option.later ? "border-brand bg-brand-soft ring-2 ring-brand/15" : "border-zinc-200 hover:border-zinc-300",
+              )}
+            >
+              <input
+                type="radio"
+                name="when"
+                checked={later === option.later}
+                onChange={() => {
+                  setLater(option.later);
+                  if (option.later && !when) setWhen(nextHour());
+                }}
+                className="sr-only"
+              />
+              <span className="flex items-center gap-2 font-semibold text-ink">
+                <option.icon className={cn("size-4", later === option.later ? "text-brand" : "text-zinc-400")} />
+                {option.label}
+              </span>
+              <span className="text-xs text-zinc-500">{option.hint}</span>
+            </label>
+          ))}
+        </fieldset>
+
+        {later && (
+          <label className="mt-4 flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
+            {p.when}
+            <input
+              type="datetime-local"
+              required
+              value={when}
+              onChange={(e) => setWhen(e.target.value)}
+              className={inputClass}
+              suppressHydrationWarning
+            />
+          </label>
+        )}
+
+        <div className="mt-4 rounded-lg bg-zinc-50 px-3 py-2.5 text-xs">
+          <p className="font-medium text-zinc-500">{p.address}</p>
+          <p className="mt-0.5 break-all text-zinc-800">{url}</p>
+        </div>
+
+        {otherUnpublished.map((text) => (
+          <p key={text} className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            {text}
+          </p>
+        ))}
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button type="button" onClick={onCancel} className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100">
+            {t.common.cancel}
+          </button>
+          <button type="submit" disabled={later && !when} className={primaryButton}>
+            {later ? p.confirmLater : p.now}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
+
+const DRAFT_LENGTHS: DraftLength[] = ["short", "medium", "long"];
+
+/** Drafts this version from a topic, or translates it from the other language, into the editor. */
+function AiDialog({
+  postId,
+  locale,
+  source,
+  enabled,
+  hasContent,
+  initialKeyword,
+  onClose,
+  onDone,
+}: {
+  postId: string;
+  locale: Locale;
+  /** The other language: where a translation comes from. */
+  source: { locale: Locale; exists: boolean } | null;
+  enabled: boolean;
+  hasContent: boolean;
+  initialKeyword: string;
+  onClose: () => void;
+  /** `from` is set when the article was translated from that locale. */
+  onDone: (article: ArticleFields & { categoryId: string | null }, from: Locale | null) => void;
+}) {
+  const { t } = useI18n();
+  const a = t.editor.ai;
+  const titleId = useId();
+  const canTranslate = !!source?.exists;
+  // An empty version with the other language written is most likely waiting to be translated.
+  const [mode, setMode] = useState<"draft" | "translate">(canTranslate && !hasContent ? "translate" : "draft");
+  const [topic, setTopic] = useState("");
+  const [keyPoints, setKeyPoints] = useState("");
+  const [keyword, setKeyword] = useState(initialKeyword);
+  const [length, setLength] = useState<DraftLength>("medium");
+  const [error, setError] = useState<string | null>(enabled ? null : a.errors.not_configured);
+  const [running, startRunning] = useTransition();
+  const [seconds, setSeconds] = useState(0);
+
+  useEffect(() => {
+    if (!running) return;
+    const started = Date.now();
+    const timer = setInterval(() => setSeconds(Math.round((Date.now() - started) / 1000)), 1000);
+    return () => clearInterval(timer);
+  }, [running]);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && !running && onClose();
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose, running]);
+
+  const language = (l: Locale) => t.common.locales[l];
+  const options = [
+    { mode: "draft" as const, icon: PenLine, label: a.draft, hint: a.draftHint, disabled: false },
+    {
+      mode: "translate" as const,
+      icon: Languages,
+      label: source ? fmt(a.translate, { language: language(source.locale) }) : a.translate,
+      hint: canTranslate ? a.translateHint : source ? fmt(a.translateMissing, { language: language(source.locale) }) : "",
+      disabled: !canTranslate,
+    },
+  ];
+
+  function run() {
+    setError(null);
+    setSeconds(0);
+    startRunning(async () => {
+      const result =
+        mode === "translate" && source
+          ? await aiTranslate({ postId, from: source.locale, to: locale })
+          : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length });
+      if (!result.ok) setError(result.error);
+      else onDone(result.article, mode === "translate" && source ? source.locale : null);
+    });
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/30 px-4 py-[10vh]" onMouseDown={() => !running && onClose()}>
+      <form
+        onMouseDown={(e) => e.stopPropagation()}
+        onSubmit={(e) => {
+          e.preventDefault();
+          run();
+        }}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
+      >
+        <div className="flex items-start justify-between gap-4">
+          <div>
+            <h2 id={titleId} className="flex items-center gap-2 text-lg font-semibold text-ink">
+              <Sparkles className="size-4 text-brand" />
+              {a.title}
+            </h2>
+            <p className="mt-1 text-sm text-zinc-500">{a.subtitle}</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={running}
+            aria-label={t.common.close}
+            className="rounded-md p-1 text-zinc-400 hover:bg-zinc-100 hover:text-zinc-700 disabled:opacity-50"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+
+        <fieldset disabled={running} className="mt-5 grid grid-cols-2 gap-2">
+          {options.map((option) => (
+            <label
+              key={option.mode}
+              className={cn(
+                "flex flex-col gap-1 rounded-xl border p-3.5 transition",
+                option.disabled ? "cursor-not-allowed opacity-60" : "cursor-pointer",
+                mode === option.mode ? "border-brand bg-brand-soft ring-2 ring-brand/15" : "border-zinc-200 hover:border-zinc-300",
+              )}
+            >
+              <input
+                type="radio"
+                name="aiMode"
+                checked={mode === option.mode}
+                disabled={option.disabled}
+                onChange={() => setMode(option.mode)}
+                className="sr-only"
+              />
+              <span className="flex items-center gap-2 font-semibold text-ink">
+                <option.icon className={cn("size-4", mode === option.mode ? "text-brand" : "text-zinc-400")} />
+                {option.label}
+              </span>
+              <span className="text-xs text-zinc-500">{option.hint}</span>
+            </label>
+          ))}
+        </fieldset>
+
+        <fieldset disabled={running} className="mt-4 flex flex-col gap-3">
+          {mode === "draft" ? (
+            <>
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
+                {a.topic}
+                <textarea
+                  required
+                  minLength={3}
+                  rows={2}
+                  value={topic}
+                  onChange={(e) => setTopic(e.target.value)}
+                  placeholder={a.topicPlaceholder}
+                  className={cn(inputClass, "resize-none")}
+                />
+              </label>
+              <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
+                {a.keyPoints}
+                <textarea
+                  rows={3}
+                  value={keyPoints}
+                  onChange={(e) => setKeyPoints(e.target.value)}
+                  placeholder={a.keyPointsPlaceholder}
+                  className={cn(inputClass, "resize-y")}
+                />
+              </label>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
+                  {a.focusKeyword}
+                  <input value={keyword} onChange={(e) => setKeyword(e.target.value)} className={inputClass} />
+                </label>
+                <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
+                  {a.length}
+                  <select value={length} onChange={(e) => setLength(e.target.value as DraftLength)} className={inputClass}>
+                    {DRAFT_LENGTHS.map((l) => (
+                      <option key={l} value={l}>
+                        {a.lengths[l]}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              </div>
+            </>
+          ) : (
+            source && (
+              <p className="rounded-lg bg-zinc-50 px-3 py-2.5 text-sm text-zinc-600">
+                {fmt(a.translateNote, { from: language(source.locale), to: language(locale) })}
+              </p>
+            )
+          )}
+        </fieldset>
+
+        {hasContent && (
+          <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            {a.replaceWarning}
+          </p>
+        )}
+        {error && (
+          <p role="alert" className="mt-3 flex items-start gap-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <CircleAlert className="mt-0.5 size-4 shrink-0" />
+            {error}
+          </p>
+        )}
+        {running && (
+          <p role="status" className="mt-3 flex items-center gap-2 text-sm text-zinc-600">
+            <Loader2 className="size-4 animate-spin text-brand" />
+            {fmt(a.working, { seconds })}
+          </p>
+        )}
+
+        <div className="mt-6 flex justify-end gap-2">
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={running}
+            className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100 disabled:opacity-50"
+          >
+            {t.common.cancel}
+          </button>
+          <button type="submit" disabled={running || !enabled || (mode === "translate" && !canTranslate)} className={primaryButton}>
+            {running ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+            {mode === "translate" && source ? fmt(a.translate, { language: language(source.locale) }) : a.draft}
+          </button>
+        </div>
+      </form>
+    </div>
+  );
+}
 
 const inputClass =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/20 disabled:bg-zinc-100";

@@ -30,6 +30,14 @@ Nối với website Qub-X chạy local: đặt cùng một giá trị `CMS_REVAL
 | `npm run db:import-qubx -- --replace` | Thay toàn bộ bài bằng các bài trong `scripts/data/qubx-blog.json` |
 | `npm run test:e2e` | Kiểm thử đầu-cuối trên dev server đang chạy (xem `tests/e2e/run.mjs`) |
 | `npm run test:browser` | Mở Chrome/Edge thật, soạn một bài có bảng, khung, video, xuất bản và kiểm tra Qub-X hiển thị đúng |
+| `npm run test:ai` | Thử trợ lý AI với một API Anthropic giả (chạy CMS với `ANTHROPIC_API_KEY=fake ANTHROPIC_BASE_URL=http://localhost:3999`) |
+
+## Trợ lý AI
+
+Nút **AI** trong trang soạn bài viết bản nháp từ chủ đề, hoặc dịch bản ngôn ngữ kia sang (giữ bố cục, bảng, khung lưu ý; dùng bảng Thuật ngữ dịch). Kết quả chỉ điền vào trình soạn thảo, người viết đọc lại rồi mới lưu hay đăng. Mỗi lần dùng được ghi vào Nhật ký hoạt động.
+
+- Bật bằng `ANTHROPIC_API_KEY` (tạo ở console.anthropic.com). `AI_MODEL` chọn model Claude, `AI_DAILY_LIMIT` giới hạn số lần mỗi người mỗi 24 giờ (mặc định 30).
+- Giọng văn và đối tượng đọc của từng website nằm trong `SITE_BRIEFS` ở `src/lib/ai.ts`.
 
 ## Đưa lên server (ví dụ Vercel)
 

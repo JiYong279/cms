@@ -8,8 +8,12 @@ import { getT } from "@/i18n/server";
 import { describeActivity } from "@/lib/activity-text";
 import { requireUser } from "@/lib/auth";
 import { can, canDeletePost, canEditPost, canEditTranslation } from "@/lib/permissions";
-import { LOCALES, isStale } from "@/lib/posts";
+import { aiConfigured } from "@/lib/ai";
+import { LOCALES, isStale, viewOrigin } from "@/lib/posts";
 import { PostEditor, type LocaleTab } from "./post-editor";
+
+// The AI assistant's Server Actions run on this page and may take a couple of minutes.
+export const maxDuration = 300;
 
 export async function generateMetadata() {
   const t = await getT();
@@ -76,16 +80,23 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
       locales={locales}
       translation={translation}
       staleSource={translation && isStale(translation, post.translations) ? translation.translatedFromLocale : null}
-      site={{ id: post.site.id, name: post.site.name, baseUrl: post.site.baseUrl, blogPath: post.site.blogPaths[locale] }}
+      site={{
+        id: post.site.id,
+        name: post.site.name,
+        baseUrl: post.site.baseUrl,
+        viewOrigin: viewOrigin(post.site),
+        blogPath: post.site.blogPaths[locale],
+      }}
       categories={categories.map((c) => ({ id: c.id, name: c.names[locale] ?? c.names.vi ?? "" }))}
       canPublish={can(user.role, "posts.publish")}
       locked={!canEditTranslation(user, translation?.status ?? null)}
       canDelete={canDeletePost(user, post, post.translations.map((tr) => tr.status))}
+      aiEnabled={aiConfigured()}
       trashed={post.deletedAt ? { at: post.deletedAt, by: trashedBy ?? null } : null}
       history={history.map((h) => ({
         at: h.at,
         who: h.who ?? t.common.system,
-        summary: describeActivity({ action: h.action, summary: h.summary, meta: h.meta, siteName: null }, t),
+        summary: describeActivity({ action: h.action, summary: h.summary, meta: h.meta, siteName: post.site.name }, t),
       }))}
     />
   );

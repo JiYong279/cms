@@ -13,6 +13,7 @@ import path from "node:path";
 import { eq } from "drizzle-orm";
 import { getDb, schema } from "../src/db";
 import type { Locale } from "../src/db/schema";
+import { slugify } from "../src/lib/posts";
 
 type Section = { title: string; paragraphs: string[]; bullets?: string[] };
 type Version = { slug: string; title: string; excerpt: string; metaDescription: string; sections: Section[] };
@@ -103,7 +104,15 @@ async function main() {
     const categoryIds = new Map<string, string>();
     for (const a of articles) {
       if (categoryIds.has(a.category.vi)) continue;
-      const [row] = await tx.insert(schema.categories).values({ siteId: SITE_ID, names: a.category }).returning();
+      const [row] = await tx
+        .insert(schema.categories)
+        .values({
+          siteId: SITE_ID,
+          names: a.category,
+          slugs: { vi: slugify(a.category.vi), en: slugify(a.category.en) },
+          position: categoryIds.size,
+        })
+        .returning();
       categoryIds.set(a.category.vi, row.id);
     }
 

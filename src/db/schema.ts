@@ -77,6 +77,12 @@ export const categories = pgTable(
       .references(() => sites.id, { onDelete: "cascade" }),
     /** Display name per locale, e.g. {"vi":"Vận hành","en":"Operations"} */
     names: jsonb("names").$type<Partial<Record<Locale, string>>>().notNull(),
+    /** URL segment of the category's page per locale; a missing one derives from the name (lib/categories). */
+    slugs: jsonb("slugs").$type<Partial<Record<Locale, string>>>().notNull().default({}),
+    /** Short introduction per locale, shown on the category's page. */
+    descriptions: jsonb("descriptions").$type<Partial<Record<Locale, string>>>().notNull().default({}),
+    /** Order in lists and filters, lowest first. */
+    position: integer("position").notNull().default(0),
     ...timestamps,
   },
   (t) => [index("categories_site_idx").on(t.siteId)],

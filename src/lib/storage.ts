@@ -5,9 +5,9 @@ import sharp from "sharp";
 import { slugify } from "./posts";
 
 /**
- * Where uploaded images go:
- * - S3-compatible object storage (Cloudflare R2, AWS S3…) when S3_BUCKET is set — required
- *   on hosts without a persistent disk such as Vercel. Files are served from S3_PUBLIC_URL.
+ * Where uploaded images go (hosts without a persistent disk, such as Vercel, need one of the first two):
+ * - Vercel Blob when BLOB_READ_WRITE_TOKEN is set (added by connecting a Blob store to the project).
+ * - S3-compatible object storage (Cloudflare R2, AWS S3…) when S3_BUCKET is set, served from S3_PUBLIC_URL.
  * - Otherwise local disk (`.data/uploads`, or UPLOAD_DIR), served by /uploads/[...key].
  */
 const UPLOAD_DIR = process.env.UPLOAD_DIR ?? path.join(process.cwd(), ".data", "uploads");
@@ -23,17 +23,22 @@ const s3Config = process.env.S3_BUCKET
     }
   : null;
 
-/** Public URL of a stored file, or null when it is served by this app under /uploads. */
-export function storedFileUrl(key: string): string | null {
-  return s3Config ? `${s3Config.publicUrl}/${key}` : null;
-}
-
-async function writeObject(key: string, body: Buffer, contentType: string) {
+/**
+ * Stores a file under `key` and returns its public URL, or null when it stays on local disk
+ * (the app then serves it under /uploads/<key>).
+ */
+export async function storeFile(key: string, body: Buffer, contentType: string): Promise<string | null> {
+  if (process.env.BLOB_READ_WRITE_TOKEN) {
+    const { put } = await import("@vercel/blob");
+    // Keys contain a random suffix and are never overwritten, so they can be cached for a year.
+    const blob = await put(key, body, { access: "public", contentType, addRandomSuffix: false, cacheControlMaxAge: 31536000 });
+    return blob.url;
+  }
   if (!s3Config) {
     const file = path.join(UPLOAD_DIR, ...key.split("/"));
     await mkdir(path.dirname(file), { recursive: true });
     await writeFile(file, body);
-    return;
+    return null;
   }
   if (!s3Config.publicUrl) throw new Error("S3_PUBLIC_URL is required when S3_BUCKET is set");
   const { S3Client, PutObjectCommand } = await import("@aws-sdk/client-s3");
@@ -52,6 +57,7 @@ async function writeObject(key: string, body: Buffer, contentType: string) {
       CacheControl: "public, max-age=31536000, immutable",
     }),
   );
+  return `${s3Config.publicUrl}/${key}`;
 }
 
 export const MAX_UPLOAD_BYTES = 15 * 1024 * 1024;
@@ -72,7 +78,8 @@ export function isAcceptedImage(mimeType: string) {
   return ACCEPTED.has(mimeType);
 }
 
-export type SavedImage = { key: string; mimeType: string; size: number; width: number; height: number };
+/** `url` is null when the file is served by this app under /uploads/<key>. */
+export type SavedImage = { key: string; url: string | null; mimeType: string; size: number; width: number; height: number };
 
 /** Normalises an uploaded image (orientation, size, WebP) and writes it to storage. */
 export async function saveImage(input: Buffer, originalName: string, mimeType: string): Promise<SavedImage> {
@@ -99,10 +106,11 @@ export async function saveImage(input: Buffer, originalName: string, mimeType: s
     `${base.slice(0, 50)}-${randomBytes(4).toString("hex")}${ext}`,
   ].join("/");
 
-  await writeObject(key, output, CONTENT_TYPES[ext]);
+  const url = await storeFile(key, output, CONTENT_TYPES[ext]);
 
   return {
     key,
+    url,
     mimeType: CONTENT_TYPES[ext],
     size: output.length,
     width: outMeta.width ?? 0,

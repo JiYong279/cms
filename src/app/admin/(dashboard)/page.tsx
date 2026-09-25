@@ -7,7 +7,7 @@ import { fmt, type Dict } from "@/i18n";
 import { getLang, getT } from "@/i18n/server";
 import { requireUser } from "@/lib/auth";
 import { can, canDeletePost } from "@/lib/permissions";
-import { LOCALES, isStale, slugify } from "@/lib/posts";
+import { LOCALES, isStale, slugify, viewOrigin } from "@/lib/posts";
 import { publishDuePosts } from "@/lib/scheduled";
 import { cn } from "@/lib/utils";
 import { NewPostButton } from "./new-post-button";
@@ -122,7 +122,7 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
         };
       }),
       publicUrl:
-        main?.status === "published" ? `${post.site.baseUrl}${post.site.blogPaths[locale]}/${main.slug}` : null,
+        main?.status === "published" ? `${viewOrigin(post.site)}${post.site.blogPaths[locale]}/${main.slug}` : null,
       updatedLabel: relativeTime(post.updatedAt, t),
       trashedLabel: post.deletedAt
         ? `${relativeTime(post.deletedAt, t)}${post.deletedBy ? ` · ${userNames.get(post.deletedBy) ?? "?"}` : ""}`

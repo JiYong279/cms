@@ -19,11 +19,13 @@ import {
   Link2,
   List,
   ListOrdered,
+  MessageSquareText,
   Loader2,
   Pilcrow,
   Plus,
   Redo2,
   RemoveFormatting,
+  SquareDashed,
   Strikethrough,
   Underline,
   Undo2,
@@ -33,6 +35,7 @@ import { plural } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/utils";
 import { BLOCKS, type EditorUi } from "./blocks";
+import type { CalloutVariant } from "./extensions";
 import { Divider, Dropdown, HIGHLIGHTS, IconButton, MenuItem, MenuLabel, TEXT_COLORS, keepSelection } from "./ui";
 
 /** Labels: `editor.toolbar.align[value]`. */
@@ -42,6 +45,12 @@ const ALIGNMENTS: { value: "left" | "center" | "right" | "justify"; icon: Lucide
   { value: "right", icon: AlignRight },
   { value: "justify", icon: AlignJustify },
 ];
+
+/** The callout boxes, with the icons the "Insert" menu uses. */
+const CALLOUTS = (["info", "success", "warning"] as const).map((variant) => {
+  const id = `callout-${variant}` as const;
+  return { variant, id, icon: BLOCKS.find((b) => b.id === id)!.icon };
+});
 
 type Props = {
   editor: Editor;
@@ -75,6 +84,7 @@ export function Toolbar({ editor, ui, uploading, disabled, linkOpen, onLinkOpenC
       canRedo: e.can().redo(),
       canSink: e.can().sinkListItem("listItem"),
       canLift: e.can().liftListItem("listItem"),
+      callout: e.isActive("callout") ? ((e.getAttributes("callout").variant as CalloutVariant | undefined) ?? "info") : null,
     }),
   });
   const chain = () => editor.chain().focus();
@@ -170,6 +180,30 @@ export function Toolbar({ editor, ui, uploading, disabled, linkOpen, onLinkOpenC
         <IconButton icon={ListOrdered} label={tb.orderedList} active={s.orderedList} onClick={() => chain().toggleOrderedList().run()} />
         <IconButton icon={IndentIncrease} label={tb.indent} disabled={!s.canSink} onClick={() => chain().sinkListItem("listItem").run()} />
         <IconButton icon={IndentDecrease} label={tb.outdent} disabled={!s.canLift} onClick={() => chain().liftListItem("listItem").run()} />
+        <Dropdown title={tb.callout} active={!!s.callout} trigger={<MessageSquareText className="size-4" />}>
+          {(close) => (
+            <div className="w-56">
+              <MenuLabel>{tb.callout}</MenuLabel>
+              {CALLOUTS.map((c) => (
+                <MenuItem
+                  key={c.variant}
+                  icon={c.icon}
+                  label={t.editor.blocks[c.id].label}
+                  active={s.callout === c.variant}
+                  onClick={() => {
+                    // Inside a box: change its kind; otherwise put the current paragraph in one.
+                    if (s.callout) chain().updateAttributes("callout", { variant: c.variant }).run();
+                    else chain().wrapIn("callout", { variant: c.variant }).run();
+                    close();
+                  }}
+                />
+              ))}
+              {s.callout && (
+                <MenuItem icon={SquareDashed} label={tb.removeCallout} onClick={() => (chain().lift("callout").run(), close())} />
+              )}
+            </div>
+          )}
+        </Dropdown>
         <Divider />
 
         <Dropdown

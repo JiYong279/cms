@@ -33,3 +33,18 @@ export function slugify(text: string) {
     .replace(/^-+|-+$/g, "")
     .slice(0, 80);
 }
+
+/**
+ * Where to open an article to look at it. When the CMS feeds a local copy of the website (its
+ * revalidate URL is on localhost), that copy; otherwise the public address. Links shown as the
+ * article's address (slug, search preview) keep using `baseUrl`.
+ */
+export function viewOrigin(site: { baseUrl: string; revalidateUrl: string | null }) {
+  try {
+    const target = site.revalidateUrl ? new URL(site.revalidateUrl) : null;
+    if (target && ["localhost", "127.0.0.1", "[::1]"].includes(target.hostname)) return target.origin;
+  } catch {
+    // An invalid revalidate URL: fall back to the public address.
+  }
+  return site.baseUrl.replace(/\/$/, "");
+}

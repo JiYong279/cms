@@ -57,7 +57,14 @@ if (!qubxUp) {
   else check("cron endpoint refuses without secret", cron.status === 401, cron.status);
   const list = await (await api("/posts?locale=vi")).json();
   check("scheduled article is live", list.posts.some((p) => p.slug === "bai-hen-gio-thu"));
-  const listed = await admin.req(`/admin?status=published&q=${encodeURIComponent("bai hen gio thu")}`);
+  // The CMS flips due articles to "published" at most every 30 s (lib/scheduled.ts), and the
+  // website's own requests may have just used that turn: allow one more.
+  let listed;
+  for (let tries = 0; tries < 9; tries++) {
+    listed = await admin.req(`/admin?status=published&q=${encodeURIComponent("bai hen gio thu")}`);
+    if (listed.text.includes("Bài hẹn giờ thử")) break;
+    await wait(5000);
+  }
   check("CMS lists it as published", listed.text.includes("Bài hẹn giờ thử"));
 
   // The trash hides an article from the website at once; restoring brings it back.

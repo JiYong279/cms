@@ -102,6 +102,8 @@ const SaveInput = z.object({
   categoryId: z.uuid().nullable(),
   featured: z.boolean(),
   coverImageUrl: z.url().nullable().or(z.literal("").transform(() => null)),
+  /** Set when this content was just translated from that locale (the editor's AI translation). */
+  translatedFrom: z.enum(schema.localeEnum.enumValues).nullable().optional(),
 });
 
 export type SaveInput = z.input<typeof SaveInput>;
@@ -141,6 +143,15 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
   const slug = slugify(input.slug || input.title);
   if (!slug) return { ok: false, error: t.badSlug };
 
+  const [translatedFrom] =
+    input.translatedFrom && input.translatedFrom !== input.locale
+      ? await db
+          .select({ locale: schema.postTranslations.locale, contentHash: schema.postTranslations.contentHash })
+          .from(schema.postTranslations)
+          .where(and(eq(schema.postTranslations.postId, post.id), eq(schema.postTranslations.locale, input.translatedFrom)))
+          .limit(1)
+      : [];
+
   const values = {
     status: input.status,
     title: input.title,
@@ -159,6 +170,8 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
     publishedAt:
       input.status === "published" ? (existing?.publishedAt ?? new Date()) : (existing?.publishedAt ?? null),
     updatedBy: user.id,
+    // Remember the source version as it is now, so a later change to it marks this one stale.
+    ...(translatedFrom ? { translatedFromLocale: translatedFrom.locale, translatedFromHash: translatedFrom.contentHash } : {}),
   };
 
   try {

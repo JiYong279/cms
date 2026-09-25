@@ -4,6 +4,7 @@ import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { AlertTriangle, ExternalLink, FileText, Loader2, Pencil, Plus, RotateCcw, Star, Trash2, X } from "lucide-react";
+import { ConfirmPopover } from "@/components/confirm-popover";
 import type { Locale, PostStatus } from "@/db/schema";
 import { plural, fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
@@ -67,10 +68,7 @@ export function PostTable({ rows, trash, canPurge, emptyTitle, emptyHint }: Prop
 
   const moveToTrash = (ids: string[]) => run(trashPosts, ids, (n) => plural(n, t.trashedOne, t.trashedOther), true);
   const restore = (ids: string[]) => run(restorePosts, ids, (n) => plural(n, t.restoredOne, t.restoredOther));
-  const purge = (ids: string[]) => {
-    if (!window.confirm(fmt(t.confirmDeleteForever, { n: ids.length }))) return;
-    run(deletePostsForever, ids, (n) => plural(n, t.deletedOne, t.deletedOther));
-  };
+  const purge = (ids: string[]) => run(deletePostsForever, ids, (n) => plural(n, t.deletedOne, t.deletedOther));
 
   if (rows.length === 0) {
     return (
@@ -98,15 +96,33 @@ export function PostTable({ rows, trash, canPurge, emptyTitle, emptyHint }: Prop
                 {t.restore}
               </BarButton>
               {canPurge && (
-                <BarButton icon={Trash2} danger onClick={() => purge([...selected])} disabled={busy}>
-                  {t.deleteForever}
-                </BarButton>
+                <ConfirmPopover
+                  message={fmt(t.confirmDeleteForever, { n: selected.size })}
+                  hint={t.confirmDeleteForeverHint}
+                  confirmLabel={t.deleteForever}
+                  onConfirm={() => purge([...selected])}
+                >
+                  {(open) => (
+                    <BarButton icon={Trash2} danger onClick={open} disabled={busy}>
+                      {t.deleteForever}
+                    </BarButton>
+                  )}
+                </ConfirmPopover>
               )}
             </>
           ) : (
-            <BarButton icon={Trash2} danger onClick={() => moveToTrash([...selected])} disabled={busy}>
-              {t.trash}
-            </BarButton>
+            <ConfirmPopover
+              message={selected.size === 1 ? t.confirmTrashOne : fmt(t.confirmTrashMany, { n: selected.size })}
+              hint={t.confirmTrashHint}
+              confirmLabel={t.trash}
+              onConfirm={() => moveToTrash([...selected])}
+            >
+              {(open) => (
+                <BarButton icon={Trash2} danger onClick={open} disabled={busy}>
+                  {t.trash}
+                </BarButton>
+              )}
+            </ConfirmPopover>
           )}
           <button type="button" onClick={() => setSelected(new Set())} className="ml-auto text-xs font-medium text-zinc-500 hover:text-zinc-800">
             {t.clearSelection}
@@ -227,7 +243,14 @@ export function PostTable({ rows, trash, canPurge, emptyTitle, emptyHint }: Prop
                           <RowButton icon={RotateCcw} label={t.restore} onClick={() => restore([row.id])} disabled={busy} />
                         )}
                         {canPurge && (
-                          <RowButton icon={Trash2} label={t.deleteForever} danger onClick={() => purge([row.id])} disabled={busy} />
+                          <ConfirmPopover
+                            message={fmt(t.confirmDeleteForever, { n: 1 })}
+                            hint={t.confirmDeleteForeverHint}
+                            confirmLabel={t.deleteForever}
+                            onConfirm={() => purge([row.id])}
+                          >
+                            {(open) => <RowButton icon={Trash2} label={t.deleteForever} danger onClick={open} disabled={busy} />}
+                          </ConfirmPopover>
                         )}
                       </>
                     ) : (
@@ -253,13 +276,14 @@ export function PostTable({ rows, trash, canPurge, emptyTitle, emptyHint }: Prop
                           </a>
                         )}
                         {row.canDelete && (
-                          <RowButton
-                            icon={Trash2}
-                            label={t.trash}
-                            danger
-                            onClick={() => moveToTrash([row.id])}
-                            disabled={busy}
-                          />
+                          <ConfirmPopover
+                            message={t.confirmTrashOne}
+                            hint={t.confirmTrashHint}
+                            confirmLabel={t.trash}
+                            onConfirm={() => moveToTrash([row.id])}
+                          >
+                            {(open) => <RowButton icon={Trash2} label={t.trash} danger onClick={open} disabled={busy} />}
+                          </ConfirmPopover>
                         )}
                       </>
                     )}
@@ -293,7 +317,7 @@ function RowButton({
   label: string;
   danger?: boolean;
   disabled?: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent<HTMLElement>) => void;
 }) {
   return (
     <button
@@ -322,7 +346,7 @@ function BarButton({
   icon: typeof Trash2;
   danger?: boolean;
   disabled?: boolean;
-  onClick: () => void;
+  onClick: (event: React.MouseEvent<HTMLElement>) => void;
   children: React.ReactNode;
 }) {
   return (

@@ -90,6 +90,16 @@ try {
   await sleep(200);
   await page.keyboard.press("Enter");
   await page.keyboard.type("Đây là khung lưu ý.");
+  // The toolbar's box button changes the kind of the box the cursor is in, and back.
+  const variant = () => page.$eval(".ProseMirror [data-callout]", (el) => el.getAttribute("data-variant"));
+  const pickBox = async (label) => {
+    await page.click('[role="toolbar"] button[title="Khung nổi bật"]');
+    await page.click(`button::-p-text(${label})`);
+  };
+  await pickBox("Khung điểm chính");
+  expect("the toolbar box button changes the box kind", (await variant()) === "success", await variant());
+  await pickBox("Khung lưu ý");
+  expect("and changes it back", (await variant()) === "warning", await variant());
   await page.evaluate(() => document.querySelector(".ProseMirror").editor.commands.focus("end"));
   await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
@@ -126,12 +136,21 @@ try {
   await shot(page, "05-color-menu");
   await page.click('button[aria-label="Xanh Qub-X"]');
 
-  // Save (Ctrl+S) and publish
-  await page.select("aside select", "published");
+  // Save (Ctrl+S) as a draft, then publish from the header button
   await page.keyboard.down("Control");
   await page.keyboard.press("s");
   await page.keyboard.up("Control");
   await page.waitForFunction(() => document.body.innerText.includes("Đã lưu"), { timeout: 20000 });
+  expect("a saved draft stays a draft", (await page.$eval("aside select", (s) => s.value)) === "draft");
+  await page.click("header button::-p-text(Đăng bài)");
+  await page.waitForSelector('[role="dialog"]', { visible: true });
+  expect("publish dialog names the website", await page.$eval('[role="dialog"]', (d) => d.innerText.includes("Đăng bài lên Qub-X")));
+  await shot(page, "06-publish-dialog");
+  await page.click('[role="dialog"] button[type="submit"]');
+  await page.waitForFunction(() => document.querySelector('[role="status"]')?.innerText.includes("Đã đăng bài lên"), { timeout: 20000 });
+  expect("publishing sets the status to published", (await page.$eval("aside select", (s) => s.value)) === "published");
+  await page.waitForSelector("header button::-p-text(Cập nhật)", { timeout: 10000 });
+  expect("once live, the header offers Update instead of Publish", !(await page.$("header button::-p-text(Đăng bài)")));
   await page.evaluate(() => document.querySelector("main").scrollTo(0, 0));
   await shot(page, "06-editor-full");
 
@@ -162,6 +181,24 @@ try {
   await qubx.evaluate(() => document.querySelector("article section")?.scrollIntoView());
   await shot(qubx, "07-qubx-article", { fullPage: false });
 
+  // The trash button in the list asks first, in a small box next to it.
+  // Back to the CMS tab: Chrome pauses rendering in background tabs, which stalls clicks.
+  await qubx.close();
+  await page.bringToFront();
+  await page.goto(`${CMS}/admin?q=${encodeURIComponent("thu trinh soan thao moi")}`, { waitUntil: "networkidle0" });
+  const trashButton = 'tbody tr button[aria-label="Chuyển vào thùng rác"]';
+  await page.click(trashButton);
+  await page.waitForSelector('[role="alertdialog"]', { visible: true });
+  expect("the trash button asks for confirmation", await page.$eval('[role="alertdialog"]', (d) => d.innerText.includes("Chuyển bài này vào thùng rác?")));
+  await shot(page, "09-confirm-trash");
+  await page.click('[role="alertdialog"] button::-p-text(Huỷ)');
+  expect("cancelling keeps the article", !(await page.$('[role="alertdialog"]')) && !!(await page.$(trashButton)));
+  await page.click(trashButton);
+  await page.waitForSelector('[role="alertdialog"]', { visible: true });
+  await page.click('[role="alertdialog"] button::-p-text(Chuyển vào thùng rác)');
+  await page.waitForFunction(() => document.body.innerText.includes("Đã chuyển 1 bài vào thùng rác"), { timeout: 20000 });
+  expect("confirming moves it to the trash", true);
+
 } catch (error) {
   failures++;
   log("ERROR:", error.message);
@@ -173,7 +210,8 @@ try {
   // Remove the test article(s).
   const admin = new Client();
   await admin.login(ADMIN.email, ADMIN.password);
-  const list = (await admin.req("/admin?q=thu%20trinh%20soan%20thao")).text;
+  // Look in the trash too: the test itself moves the article there.
+  const list = (await admin.req("/admin?q=thu%20trinh%20soan%20thao")).text + (await admin.req("/admin?view=trash&q=thu%20trinh%20soan%20thao")).text;
   await destroyPosts(admin, [...new Set([...list.matchAll(/\/admin\/posts\/([0-9a-f-]{36})\?locale=vi/g)].map((m) => m[1]))]);
 }
 process.exit(failures ? 1 : 0);

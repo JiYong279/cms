@@ -44,6 +44,9 @@ export function describeActivity(entry: Entry, t: Dict): string {
   if (days) vars.days = days;
   const name = str(meta.name);
   if (name) vars.name = name;
+  // Categories have a name per language; English lines use the English one.
+  const nameEn = str(meta.nameEn) ?? name;
+  if (nameEn) vars.nameEn = nameEn;
   const role = str(meta.role);
   if (role) vars.role = roles[role] ?? role;
   if (entry.siteName) vars.site = entry.siteName;

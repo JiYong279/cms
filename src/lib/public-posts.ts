@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import type { JSONContent } from "@tiptap/react";
 import { getDb, schema } from "@/db";
 import type { Locale, PostTranslation } from "@/db/schema";
+import { categoryName, categorySlug } from "./categories";
 import { slugify } from "./posts";
 import { publishDuePosts } from "./scheduled";
 
@@ -16,7 +17,7 @@ export type PublicPostSummary = {
   slug: string;
   title: string;
   excerpt: string;
-  category: { id: string; name: string } | null;
+  category: { id: string; name: string; slug: string } | null;
   featured: boolean;
   coverImageUrl: string | null;
   publishedAt: string;
@@ -110,19 +111,21 @@ async function loadLive(siteId: string, locale: Locale, slug?: string) {
   return live.map((t) => {
     const alternates: Partial<Record<Locale, string>> = {};
     for (const o of others) if (o.postId === t.postId && isLive(o, now)) alternates[o.locale] = o.slug;
-    const names = t.post.category?.names;
-    return { t, alternates, categoryName: names ? (names[locale] ?? names.vi ?? names.en ?? "") : "" };
+    return { t, alternates };
   });
 }
 
-function summary({ t, alternates, categoryName }: Awaited<ReturnType<typeof loadLive>>[number]): PublicPostSummary {
+function summary({ t, alternates }: Awaited<ReturnType<typeof loadLive>>[number]): PublicPostSummary {
+  const category = t.post.category;
   return {
     id: t.postId,
     locale: t.locale,
     slug: t.slug,
     title: t.title,
     excerpt: t.excerpt,
-    category: t.post.category ? { id: t.post.category.id, name: categoryName } : null,
+    category: category
+      ? { id: category.id, name: categoryName(category, t.locale), slug: categorySlug(category, t.locale) }
+      : null,
     featured: t.post.featured,
     coverImageUrl: t.post.coverImageUrl,
     publishedAt: liveDate(t).toISOString(),
@@ -183,4 +186,37 @@ export async function siteExists(siteId: string) {
   const db = await getDb();
   const [site] = await db.select({ id: schema.sites.id }).from(schema.sites).where(eq(schema.sites.id, siteId)).limit(1);
   return !!site;
+}
+
+export type PublicCategory = {
+  id: string;
+  name: string;
+  slug: string;
+  description: string;
+  /** Published articles in this language. */
+  posts: number;
+  /** The category page's slug in each language, for the language switcher. */
+  alternates: Partial<Record<Locale, string>>;
+};
+
+/** Every category of a website in `locale`, in the order set in the CMS. */
+export async function listPublicCategories(siteId: string, locale: Locale): Promise<PublicCategory[]> {
+  const db = await getDb();
+  const [categories, live] = await Promise.all([
+    db.query.categories.findMany({
+      where: (c, { eq }) => eq(c.siteId, siteId),
+      orderBy: (c, { asc }) => [asc(c.position), asc(c.createdAt)],
+    }),
+    listPublicPosts(siteId, locale),
+  ]);
+  return categories.map((c) => ({
+    id: c.id,
+    name: categoryName(c, locale),
+    slug: categorySlug(c, locale),
+    description: c.descriptions[locale] ?? "",
+    posts: live.filter((p) => p.category?.id === c.id).length,
+    alternates: Object.fromEntries(
+      (schema.localeEnum.enumValues as readonly Locale[]).map((l) => [l, categorySlug(c, l)]),
+    ) as Partial<Record<Locale, string>>,
+  }));
 }

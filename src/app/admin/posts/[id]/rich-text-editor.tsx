@@ -1,6 +1,6 @@
 "use client";
 
-import { useId, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorContent, useEditor, type Editor, type JSONContent } from "@tiptap/react";
 import { useI18n } from "@/i18n/client";
@@ -18,11 +18,13 @@ type Props = {
   siteId: string;
   onError: (message: string) => void;
   editable?: boolean;
+  /** Replaces the whole document with this HTML (e.g. an AI draft) each time `version` changes. */
+  replacement?: { html: string; version: number } | null;
 };
 
 const YOUTUBE_URL = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?|shorts\/|embed\/)|youtu\.be\/)\S+$/;
 
-export function RichTextEditor({ content, onChange, siteId, onError, editable = true }: Props) {
+export function RichTextEditor({ content, onChange, siteId, onError, editable = true, replacement }: Props) {
   const { t } = useI18n();
   const [uploading, setUploading] = useState(0);
   const [slash, setSlash] = useState<SlashState | null>(null);
@@ -89,6 +91,11 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
     // a JSON round trip turns them into plain objects so levels, links and colours are saved.
     onUpdate: ({ editor }) => onChange({ json: JSON.parse(JSON.stringify(editor.getJSON())), html: editor.getHTML() }),
   });
+
+  // Parsed by the editor like a paste, so anything it does not support is dropped; onUpdate reports it.
+  useEffect(() => {
+    if (editor && replacement) editor.commands.setContent(replacement.html);
+  }, [editor, replacement]);
 
   const toolbar = editor && (
     <Toolbar

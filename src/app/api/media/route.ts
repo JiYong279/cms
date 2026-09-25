@@ -1,7 +1,7 @@
 import { getDb, schema } from "@/db";
 import { getT } from "@/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
-import { MAX_UPLOAD_BYTES, isAcceptedImage, saveImage, storedFileUrl } from "@/lib/storage";
+import { MAX_UPLOAD_BYTES, isAcceptedImage, saveImage, type SavedImage } from "@/lib/storage";
 
 export type UploadResponse =
   | { ok: true; id: string; url: string; width: number; height: number }
@@ -12,11 +12,10 @@ function fail(error: string, status: number) {
 }
 
 /** Absolute URL, since the HTML is rendered on other domains. Set CMS_PUBLIC_URL in production. */
-function publicUrl(key: string, request: Request) {
-  const stored = storedFileUrl(key);
-  if (stored) return stored;
+function publicUrl(saved: SavedImage, request: Request) {
+  if (saved.url) return saved.url;
   const origin = process.env.CMS_PUBLIC_URL?.replace(/\/$/, "") ?? new URL(request.url).origin;
-  return `${origin}/uploads/${key}`;
+  return `${origin}/uploads/${saved.key}`;
 }
 
 export async function POST(request: Request) {
@@ -40,7 +39,7 @@ export async function POST(request: Request) {
     return fail(t.editor.upload.unreadable, 422);
   }
 
-  const url = publicUrl(saved.key, request);
+  const url = publicUrl(saved, request);
   const db = await getDb();
   const [row] = await db
     .insert(schema.media)
