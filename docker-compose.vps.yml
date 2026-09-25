@@ -1,0 +1,40 @@
+# Staging overlay, used only by the deploy job in .github/workflows/ci.yml:
+#
+#   docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --no-build
+#
+# The staging host pulls the images CI pushed to GHCR instead of building them, and publishes no port:
+# the host's shared edge proxy (github.com/tiloneeee1106/coauths-infra-edge) holds :443 and reaches
+# cms-web by name over the external "edge" network, as https://cms.dev.coauths.com.
+services:
+  cms-migrate:
+    image: ghcr.io/jiyong279/cms-tools:${IMAGE_TAG:?Set IMAGE_TAG in .env (the deploy job writes it)}
+
+  cms-web:
+    image: ghcr.io/jiyong279/cms-web:${IMAGE_TAG:?Set IMAGE_TAG in .env (the deploy job writes it)}
+    ports: !override []
+    networks:
+      default: {}
+      edge: {}
+
+  # Publishes scheduled articles. Reuses the web image, which already carries wget.
+  cms-cron:
+    image: ghcr.io/jiyong279/cms-web:${IMAGE_TAG:?Set IMAGE_TAG in .env (the deploy job writes it)}
+    restart: unless-stopped
+    environment:
+      CRON_SECRET: ${CRON_SECRET:?Set CRON_SECRET in .env}
+    command:
+      - sh
+      - -c
+      - |
+        while sleep 300; do
+          wget -q -O - --header "Authorization: Bearer $$CRON_SECRET" http://cms-web:3000/api/cron/publish-scheduled
+          echo
+        done
+    depends_on:
+      cms-web:
+        condition: service_healthy
+
+networks:
+  # Created once per host (docker network create edge); see coauths-infra-edge.
+  edge:
+    external: true

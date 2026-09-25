@@ -1,0 +1,72 @@
+# Local run:
+#   cp .env.example .env     # set POSTGRES_PASSWORD, and CMS_PUBLIC_URL=http://localhost:3000
+#   docker compose up -d --build --wait
+#   docker compose run --rm cms-migrate npm run db:seed -- --demo
+#
+# `npm run dev` does not use this file; it keeps running on PGlite.
+name: cms
+
+services:
+  cms-postgres:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: cms
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: cms
+    volumes:
+      # PostgreSQL 18 keeps PGDATA in a versioned directory under this path.
+      - cms_postgres:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U cms -d cms"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  # Applies pending migrations and exits; cms-web starts only after it succeeds.
+  # Also the container for one-off scripts: `docker compose run --rm cms-migrate npm run db:seed`.
+  cms-migrate:
+    build:
+      context: .
+      target: tools
+    image: cms-tools:${IMAGE_TAG:-local}
+    restart: "no"
+    command: ["npm", "run", "db:migrate"]
+    env_file: .env
+    environment:
+      # Set here, not in .env: without DATABASE_URL the app silently falls back to PGlite inside the
+      # container, which looks healthy and loses every article on the next deploy.
+      DATABASE_URL: postgres://cms:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@cms-postgres:5432/cms
+    depends_on:
+      cms-postgres:
+        condition: service_healthy
+
+  # Not "web": on the staging host every stack shares the "edge" network, where a service name is
+  # a DNS alias and two stacks with the same one resolve to each other.
+  cms-web:
+    build:
+      context: .
+      target: runner
+    image: cms-web:${IMAGE_TAG:-local}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgres://cms:${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}@cms-postgres:5432/cms
+      CMS_PUBLIC_URL: ${CMS_PUBLIC_URL:?Set CMS_PUBLIC_URL in .env}
+    volumes:
+      - cms_uploads:/data/uploads
+    ports:
+      - "127.0.0.1:${CMS_PORT:-3000}:3000"
+    depends_on:
+      cms-migrate:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:3000/login"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
+
+volumes:
+  cms_postgres:
+  cms_uploads:

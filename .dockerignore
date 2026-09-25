@@ -1,0 +1,11 @@
+# node_modules must come from `npm ci` inside the image: the host's native binaries (sharp, esbuild) are for the wrong OS.
+node_modules
+.next
+.data
+.git
+.vercel
+# Secrets reach the container at runtime through compose, never through the image.
+.env*
+tests/browser/screenshots
+*.tsbuildinfo
+next-env.d.ts
