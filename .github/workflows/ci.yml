@@ -1,0 +1,129 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+  # Deploys the chosen branch to staging, e.g. to try a branch before it is merged.
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # A newer push cancels a stale run, except on main where the run may be halfway through a deploy.
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  check:
+    name: Lint and build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      # Also type-checks: next build runs TypeScript and fails on errors.
+      - run: npm run build
+
+  # One-time setup: /opt/cms/.env on the server (see docker-compose.vps.yml), the deploy key in root's
+  # authorized_keys, and its private half as STAGING_SSH_KEY in the "staging" environment.
+  deploy-staging:
+    name: Deploy to staging
+    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    needs: [check]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    environment:
+      name: staging
+      url: https://cms.dev.coauths.com
+    concurrency:
+      group: deploy-staging
+      cancel-in-progress: false
+    env:
+      IMAGE_TAG: ${{ github.sha }}
+      REGISTRY: ghcr.io/jiyong279
+      TARGET: root@14.225.222.173
+      APP_DIR: /opt/cms
+      COMPOSE: docker compose -f docker-compose.yml -f docker-compose.vps.yml
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v3
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Each image keeps its own cache scope so neither overwrites the other's. The npm ci layer comes
+      # back from cache with the same digest, so the server downloads it again only when the lockfile changes.
+      - name: Build and push cms-web
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runner
+          push: true
+          tags: ${{ env.REGISTRY }}/cms-web:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=cms-web
+          cache-to: type=gha,mode=max,scope=cms-web
+      - name: Build and push cms-tools
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: tools
+          push: true
+          tags: ${{ env.REGISTRY }}/cms-tools:${{ env.IMAGE_TAG }}
+          cache-from: type=gha,scope=cms-tools
+          cache-to: type=gha,mode=max,scope=cms-tools
+
+      - name: SSH key
+        env:
+          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          test -n "$STAGING_SSH_KEY" || { echo "::error::secret STAGING_SSH_KEY is not set in the staging environment"; exit 1; }
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
+          echo "14.225.222.173 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGepWbiO41Z7/AVd+C61TrlMFZDEFSZpqlNG2Y1ZhKmX" >> ~/.ssh/known_hosts
+
+      - name: Ship compose files
+        run: |
+          ssh "$TARGET" "test -f $APP_DIR/.env" || { echo "::error::$APP_DIR/.env is missing on the server (one-time setup)"; exit 1; }
+          tar -czf - docker-compose.yml docker-compose.vps.yml | ssh "$TARGET" "tar -xzf - -C $APP_DIR"
+
+      # The token goes over stdin rather than the command line, where the server's process list would show it,
+      # and it expires when this run ends.
+      - name: Pull images
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          printf '%s' "$GHCR_TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+          ssh "$TARGET" "cd $APP_DIR && IMAGE_TAG=$IMAGE_TAG $COMPOSE pull cms-web cms-migrate; status=\$?; docker logout ghcr.io >/dev/null; exit \$status"
+
+      # cms-migrate runs before cms-web is replaced; if it fails, the running release is left untouched.
+      - name: Migrate and start
+        run: |
+          ssh "$TARGET" IMAGE_TAG="$IMAGE_TAG" APP_DIR="$APP_DIR" bash -s <<'SCRIPT'
+          set -euo pipefail
+          cd "$APP_DIR"
+          docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --no-build --wait --remove-orphans
+          # .env holds the last release that came up healthy: manual compose commands and a rollback read it.
+          previous="$(sed -n 's/^IMAGE_TAG=//p' .env)"
+          sed -i '/^IMAGE_TAG=/d' .env
+          echo "IMAGE_TAG=$IMAGE_TAG" >> .env
+          # Keep this release and the one before it for a rollback; the disk is shared with every other stack.
+          for repo in ghcr.io/jiyong279/cms-web ghcr.io/jiyong279/cms-tools; do
+            for tag in $(docker image ls "$repo" --format '{{.Tag}}'); do
+              if [ "$tag" != "$IMAGE_TAG" ] && [ "$tag" != "$previous" ] && [ "$tag" != "<none>" ]; then
+                docker rmi "$repo:$tag"
+              fi
+            done
+          done
+          SCRIPT
