@@ -75,7 +75,7 @@ def icon: {success: "✅", failure: "❌", cancelled: "⏹️", skipped: "⏭️
         ] | join("\n\n")),
       fields: ([$jobs[] | {
           name: .name,
-          value: (.conclusion | icon) + " " + (if .conclusion == "skipped" then "skipped" else (seconds | duration) end),
+          value: ((.conclusion | icon) + " " + (if .conclusion == "skipped" then "skipped" else (seconds | duration) end)),
           inline: true
         }]
         + (if $ok and $deployed then [{name: "Image", value: "`cms-web:\($sha | short)`", inline: true}] else [] end)),
