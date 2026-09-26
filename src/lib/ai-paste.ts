@@ -68,14 +68,14 @@ const RULES = {
 - Khung nổi bật viết như sau (NOTE = thông tin, TIP = điểm chính, WARNING = lưu ý):
   > [!TIP]
   > Nội dung của khung.
-- Chỉ trả về bài viết theo đúng khuôn dưới đây, không thêm lời dẫn trước hay sau.`,
+- Đặt toàn bộ bài (từ dòng --- đầu tiên tới hết) trong MỘT khối code \`\`\`markdown, không tạo tài liệu hay artifact riêng, không thêm lời dẫn trước hay sau.`,
   en: `Formatting:
 - Start every section with "## " and sub-sections with "### ". Do not use "# " and do not repeat the title in the body.
 - Keep paragraphs short; use lists, **bold** and Markdown tables for comparisons.
 - Write highlighted boxes like this (NOTE = information, TIP = key point, WARNING = caution):
   > [!TIP]
   > Text of the box.
-- Answer with the article in exactly the format below, with nothing before or after it.`,
+- Put the whole article (from the first --- line to the end) in ONE \`\`\`markdown code block, not in a separate document or artifact, with nothing before or after it.`,
 };
 
 /** Prompt for a new article in `locale`. */

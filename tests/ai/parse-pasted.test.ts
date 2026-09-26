@@ -82,6 +82,14 @@ const prompt = draftPrompt({
 check("the prompt lists the categories and the format", prompt.includes("Vận hành phòng khám | Hồ sơ bệnh án điện tử (EMR)") && prompt.includes("metaDescription:") && prompt.includes("> [!TIP]"));
 check("the prompt leaves out empty options", !prompt.includes("Các ý cần có") && !prompt.includes("Từ khoá chính:"));
 
+const FENCE = "`".repeat(3);
+check("the prompt asks for the article in one code block (chat apps give it a Copy button)", prompt.includes(`MỘT khối code ${FENCE}markdown`));
+const wrapped = parsePastedArticle(
+  ["Đây là bài viết:", "", `${FENCE}markdown`, "---", "title: Bài trong khối code", "excerpt: Tóm tắt.", "---", "", "## Mục một", "", "Nội dung.", FENCE, "", "Bạn muốn chỉnh gì thêm không?"].join("\n"),
+  categories,
+);
+check("an answer in a code block, with words before and after it, is read", wrapped.ok && wrapped.article.title === "Bài trong khối code" && wrapped.article.sections === 1, JSON.stringify(wrapped).slice(0, 160));
+
 // Pasting the prompt itself instead of the AI answer must not fill the article with the template.
 const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
 const source = { title: "Chọn phần mềm spa", excerpt: "Tóm tắt.", metaTitle: "", metaDescription: "", focusKeyword: "", html: "<h2>Mục</h2><p>Nội dung.</p>" };
