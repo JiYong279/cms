@@ -1,6 +1,7 @@
 import { relations, sql } from "drizzle-orm";
 import {
   boolean,
+  date,
   index,
   integer,
   jsonb,
@@ -106,12 +107,23 @@ export const posts = pgTable(
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
     coverImageUrl: text("cover_image_url"),
     featured: boolean("featured").notNull().default(false),
+    /**
+     * The day the team means to publish it (YYYY-MM-DD), placing a draft on the editorial calendar.
+     * A plan only: publishing still happens by hand or through scheduledAt.
+     */
+    plannedFor: date("planned_for", { mode: "string" }),
+    /** Who looks after the article until it is published, usually the editor reviewing it. */
+    assigneeId: uuid("assignee_id").references(() => users.id, { onDelete: "set null" }),
     /** Set when moved to the trash; the article is hidden everywhere until restored. */
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
     deletedBy: uuid("deleted_by").references(() => users.id, { onDelete: "set null" }),
     ...timestamps,
   },
-  (t) => [index("posts_site_idx").on(t.siteId), index("posts_deleted_idx").on(t.deletedAt)],
+  (t) => [
+    index("posts_site_idx").on(t.siteId),
+    index("posts_deleted_idx").on(t.deletedAt),
+    index("posts_assignee_idx").on(t.assigneeId),
+  ],
 );
 
 export const postTranslations = pgTable(
@@ -266,7 +278,8 @@ export const glossary = pgTable(
 export const postsRelations = relations(posts, ({ one, many }) => ({
   site: one(sites, { fields: [posts.siteId], references: [sites.id] }),
   category: one(categories, { fields: [posts.categoryId], references: [categories.id] }),
-  author: one(users, { fields: [posts.authorId], references: [users.id] }),
+  author: one(users, { fields: [posts.authorId], references: [users.id], relationName: "author" }),
+  assignee: one(users, { fields: [posts.assigneeId], references: [users.id], relationName: "assignee" }),
   translations: many(postTranslations),
 }));
 

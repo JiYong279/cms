@@ -90,6 +90,8 @@ try {
   await page.reload({ waitUntil: "networkidle0" });
   const date = await page.$eval("#field-published-at", (el) => el.value);
   expect("a changed publication date is saved", date === "2025-01-15T09:30", date);
+  const dateLabel = await page.$eval("#field-published-at", (el) => el.closest("label")?.firstElementChild?.textContent ?? "");
+  expect("the publication date label is just its name, its explanation sits apart", dateLabel === "Ngày đăng", dateLabel);
 
   // --- Disabling an account ---
   await page.goto(`${CMS}/admin/users`, { waitUntil: "networkidle0" });

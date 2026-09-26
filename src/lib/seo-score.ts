@@ -82,6 +82,9 @@ const WEIGHTS: Record<CheckId, [ScoreGroup, number]> = {
 };
 
 export const SCORE_THRESHOLDS = { good: 80, ok: 50 } as const;
+/** What Google shows of the title and the description before cutting them (characters). */
+export const SEO_TITLE_LENGTH = { min: 30, max: 60 } as const;
+export const META_DESCRIPTION_LENGTH = { min: 110, max: 160 } as const;
 export const MIN_WORDS = 1000;
 export const MIN_SECTIONS = 3;
 export const MAX_PARAGRAPH_WORDS = 150;
@@ -123,8 +126,8 @@ export function scoreArticle(input: ScoreInput): ScoreResult {
 
   const met = (ok: boolean) => (ok ? 1 : 0);
   const results: Record<CheckId, [number, Record<string, string | number>]> = {
-    seoTitleLength: [met(seoTitle.length >= 30 && seoTitle.length <= 60), { n: seoTitle.length }],
-    metaDescriptionLength: [met(seoDescription.length >= 110 && seoDescription.length <= 160), { n: seoDescription.length }],
+    seoTitleLength: [met(seoTitle.length >= SEO_TITLE_LENGTH.min && seoTitle.length <= SEO_TITLE_LENGTH.max), { n: seoTitle.length }],
+    metaDescriptionLength: [met(seoDescription.length >= META_DESCRIPTION_LENGTH.min && seoDescription.length <= META_DESCRIPTION_LENGTH.max), { n: seoDescription.length }],
     keywordSet: [met(!!keyword), {}],
     keywordInTitle: [met(has(seoTitle)), {}],
     keywordInDescription: [met(has(seoDescription)), {}],

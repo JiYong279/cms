@@ -45,6 +45,7 @@ const post = await somePublishedPost();
 const pages = [
   "/admin",
   "/admin?view=trash",
+  "/admin/calendar",
   `/admin/posts/${post.id}?locale=vi`,
   `/admin/posts/${post.id}?locale=en`,
   "/admin/users",

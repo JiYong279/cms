@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { Locale } from "@/db/schema";
 import { siteBrief } from "./ai-brief";
+import { SOURCE_RULES_NO_BROWSING } from "./ai-sources";
+import { seoFixPrompt, type AiField, type FixArticle } from "./seo-fix";
 
 /**
  * The editor's AI assistant: drafts an article from a topic, or translates one into the other
@@ -145,7 +147,8 @@ Write in ${LANGUAGE[input.locale]}, in a clear, warm and professional voice. Pre
 short paragraphs and lists over generic statements. Do not invent statistics, prices, laws or
 regulations; when a point depends on a regulation, say readers should check the current text.
 ${glossaryText(input.site)}
-${BODY_HTML_RULES}`;
+${BODY_HTML_RULES}
+${SOURCE_RULES_NO_BROWSING}`;
   const prompt = [
     `Write an article of about ${DRAFT_LENGTHS[input.length]} words.`,
     `Topic: ${input.topic}`,
@@ -190,6 +193,47 @@ Body HTML:
 ${source.html}`;
   try {
     return await callArticleTool(system, prompt);
+  } catch (error) {
+    explain(error);
+  }
+}
+
+/**
+ * Rewrites some SEO fields of an article ("Fix with AI" in the SEO score). Answers through a tool
+ * holding only those fields; lengths are checked by the editor, which shows the answer for review.
+ */
+export async function fixSeoFields(input: {
+  siteId: string;
+  site: SiteContext;
+  locale: Locale;
+  fields: AiField[];
+  article: FixArticle;
+}): Promise<Partial<Record<AiField, string>>> {
+  if (!aiConfigured()) throw new AiError("not_configured");
+  const tool: Anthropic.Tool = {
+    name: "seo_fields",
+    description: "Returns the rewritten SEO fields.",
+    input_schema: {
+      type: "object",
+      properties: Object.fromEntries(input.fields.map((f) => [f, { type: "string" }])),
+      required: [...input.fields],
+    },
+  };
+  const prompt = seoFixPrompt({ site: { id: input.siteId, ...input.site }, locale: input.locale, fields: input.fields, article: input.article, answer: "tool" });
+  try {
+    const message = await new Anthropic().messages.create({
+      model: MODEL,
+      max_tokens: 1_000,
+      tools: [tool],
+      tool_choice: { type: "tool", name: tool.name },
+      messages: [{ role: "user", content: prompt }],
+    });
+    const block = message.content.find((b) => b.type === "tool_use");
+    const parsed = z
+      .object(Object.fromEntries(input.fields.map((f) => [f, z.string().trim().min(1).max(500)])))
+      .safeParse(block?.type === "tool_use" ? block.input : null);
+    if (!parsed.success) throw new AiError("bad_answer");
+    return parsed.data as Partial<Record<AiField, string>>;
   } catch (error) {
     explain(error);
   }

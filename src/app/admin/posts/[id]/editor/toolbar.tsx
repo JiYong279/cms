@@ -38,6 +38,24 @@ import { BLOCKS, type EditorUi } from "./blocks";
 import type { CalloutVariant } from "./extensions";
 import { Divider, Dropdown, HIGHLIGHTS, IconButton, MenuItem, MenuLabel, TEXT_COLORS, keepSelection } from "./ui";
 
+/**
+ * The plain text box (marked data-undo-field: the title and the excerpt) the person last typed in, or
+ * null while they work in the article body or anywhere else. Clicks on the toolbar do not change it.
+ */
+function usePlainFieldFocus(editor: Editor) {
+  const [field, setField] = useState<HTMLTextAreaElement | null>(null);
+  useEffect(() => {
+    const onFocus = (event: FocusEvent) => {
+      const target = event.target;
+      if (!(target instanceof HTMLElement) || target.closest('[role="toolbar"]')) return;
+      setField(target instanceof HTMLTextAreaElement && target.hasAttribute("data-undo-field") ? target : null);
+    };
+    document.addEventListener("focusin", onFocus);
+    return () => document.removeEventListener("focusin", onFocus);
+  }, [editor]);
+  return field;
+}
+
 /** Labels: `editor.toolbar.align[value]`. */
 const ALIGNMENTS: { value: "left" | "center" | "right" | "justify"; icon: LucideIcon }[] = [
   { value: "left", icon: AlignLeft },
@@ -88,6 +106,20 @@ export function Toolbar({ editor, ui, uploading, disabled, linkOpen, onLinkOpenC
     }),
   });
   const chain = () => editor.chain().focus();
+  const plainField = usePlainFieldFocus(editor);
+  /**
+   * Undo/Redo follow where the person is typing. The title and the excerpt are plain text boxes with
+   * the browser's own history, which only execCommand can reach (deprecated, but still the one way to
+   * step through it, and supported by every current browser).
+   */
+  const history = (step: "undo" | "redo") => {
+    if (plainField) {
+      plainField.focus();
+      document.execCommand(step);
+    } else {
+      chain()[step]().run();
+    }
+  };
   const blockLabel = t.editor.blocks[s.h2 ? "h2" : s.h3 ? "h3" : "paragraph"].label;
   const AlignIcon = ALIGNMENTS.find((a) => a.value === s.align)?.icon ?? AlignLeft;
 
@@ -101,8 +133,8 @@ export function Toolbar({ editor, ui, uploading, disabled, linkOpen, onLinkOpenC
           disabled && "pointer-events-none opacity-50",
         )}
       >
-        <IconButton icon={Undo2} label={tb.undo} disabled={!s.canUndo} onClick={() => chain().undo().run()} />
-        <IconButton icon={Redo2} label={tb.redo} disabled={!s.canRedo} onClick={() => chain().redo().run()} />
+        <IconButton icon={Undo2} label={tb.undo} disabled={!plainField && !s.canUndo} onClick={() => history("undo")} />
+        <IconButton icon={Redo2} label={tb.redo} disabled={!plainField && !s.canRedo} onClick={() => history("redo")} />
         <Divider />
 
         <Dropdown title={tb.blockType} trigger={<span className="w-[5.5rem] text-left text-[13px] font-medium">{blockLabel}</span>}>

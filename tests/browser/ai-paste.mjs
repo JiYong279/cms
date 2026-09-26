@@ -63,6 +63,8 @@ focusKeyword: EMR software
 
 Opening paragraph with **bold text**.
 
+![Receptionist welcoming a client](https://www.qub-x.com/qubx/qub-x-logo-mark-256.png "Front desk")
+
 > [!WARNING]
 > Never keep client photos on personal phones.
 
@@ -134,6 +136,14 @@ try {
   expect("the prompt is on the clipboard", clipboard.split(String.fromCharCode(13)).join("") === prompt && prompt.length > 200, clipboard.slice(0, 80));
   expect("the prompt carries the topic, the categories and the format", prompt.includes("Chủ đề: Cách chọn phần mềm EMR") && prompt.includes("Vận hành phòng khám") && prompt.includes("metaDescription:") && prompt.includes("[!TIP]"));
   const pasteBox = '[role="dialog"] textarea[aria-label="Dán câu trả lời của Claude"]';
+  expect("the dialog links to Claude", !!(await page.$('[role="dialog"] a[href="https://claude.ai/new"][target="_blank"]')));
+  // Pasting the prompt itself, instead of Claude's answer, explains the step that was skipped.
+  await paste(pasteBox, prompt);
+  await page.waitForFunction(() => document.querySelector('[role="dialog"] [role="alert"]')?.textContent?.includes("Đây là câu lệnh"));
+  expect(
+    "pasting the prompt back says it is the prompt and fills nothing",
+    await page.$eval('[role="dialog"] button[type="submit"]', (b) => b.disabled),
+  );
   await paste(pasteBox, VI_ANSWER);
   const found = () => [...document.querySelectorAll('[role="dialog"] [role="status"]')].find((p) => p.innerText.includes("Nhận được"))?.innerText;
   await page.waitForFunction(found);
@@ -175,6 +185,8 @@ try {
   await page.click('[role="dialog"] button[type="submit"]');
   await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
   expect("the English version is filled in", (await page.$eval("main textarea", (t) => t.value)) === "How to Choose EMR Software for an Aesthetic Clinic");
+  const picture = await page.$eval(".ProseMirror img", (img) => ({ src: img.getAttribute("src"), alt: img.getAttribute("alt"), title: img.getAttribute("title") })).catch(() => null);
+  expect("the translated article keeps its picture with the translated description", picture?.src === "https://www.qub-x.com/qubx/qub-x-logo-mark-256.png" && picture?.alt === "Receptionist welcoming a client" && picture?.title === "Front desk", JSON.stringify(picture));
   await saveNow();
   await page.reload({ waitUntil: "networkidle0" });
   expect("the pasted translation remembers its source (not marked out of date)", !(await page.$eval("main", (m) => m.innerText.includes("đã được sửa sau khi bản này được dịch"))));
