@@ -3,7 +3,7 @@ const vi = {
   noAccess: "Bài này thuộc về người khác. Người viết chỉ mở được bài của mình.",
   confirmLeave: "Bạn có thay đổi chưa lưu. Rời trang?",
   header: {
-    back: "Về danh sách bài viết",
+    back: "Quay lại trang trước",
     untitled: "Bài viết chưa có tiêu đề",
     languages: "Ngôn ngữ",
     /** Tooltip of a language tab: {language} · {status}. */
@@ -346,7 +346,7 @@ const en: EditorDict = {
   noAccess: "This article belongs to someone else. Writers can only open their own articles.",
   confirmLeave: "You have unsaved changes. Leave this page?",
   header: {
-    back: "Back to articles",
+    back: "Back to where you were",
     untitled: "Untitled article",
     languages: "Languages",
     tab: "{language} · {status}",

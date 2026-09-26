@@ -20,6 +20,7 @@
     "test:fix-and-users": "tsx tests/browser/fix-and-users.mjs",
     "test:calendar": "tsx tests/browser/calendar.mjs",
     "test:translate": "tsx tests/browser/translate.mjs",
+    "test:back": "tsx tests/browser/back-button.mjs",
     "test:image-storage": "tsx --env-file=.env.local tests/storage-s3.test.ts && tsx tests/browser/image-storage.mjs"
   },
   "dependencies": {

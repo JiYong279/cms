@@ -1,4 +1,6 @@
+import { Suspense } from "react";
 import { logout } from "@/app/login/actions";
+import { RememberReturnTo } from "@/components/return-to";
 import { getT } from "@/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
@@ -29,6 +31,9 @@ export default async function DashboardLayout({ children }: LayoutProps<"/admin"
 
   return (
     <Shell groups={groups} user={user && { name: user.name, roleLabel: t.common.roles[user.role] }} logout={logout}>
+      <Suspense>
+        <RememberReturnTo />
+      </Suspense>
       {children}
     </Shell>
   );

@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { ConfirmPopover } from "@/components/confirm-popover";
+import { useReturnTo } from "@/components/return-to";
 import type { Locale, PostStatus, PostTranslation } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
@@ -173,6 +174,8 @@ export function PostEditor({
   const [aiOpen, setAiOpen] = useState(openAi === "translate");
   // Where to go once the save in progress succeeds (translating this version into the other language).
   const afterSave = useRef<string | null>(null);
+  // Back to the list, calendar or log (with its filters) the article was opened from.
+  const backHref = useReturnTo("/admin");
   const [replacement, setReplacement] = useState<{ html: string; version: number } | null>(null);
   // The locale the current content was machine-translated from, until it is saved.
   const [translatedFrom, setTranslatedFrom] = useState<Locale | null>(null);
@@ -393,7 +396,7 @@ export function PostEditor({
       {/* ---------- Top bar ---------- */}
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 sm:px-4">
         <Link
-          href="/admin"
+          href={backHref}
           onClick={confirmLeave}
           title={t.editor.header.back}
           className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
