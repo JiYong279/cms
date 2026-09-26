@@ -162,3 +162,52 @@ jobs:
             done
           done
           SCRIPT
+
+  # Posts the outcome to Discord: every deploy, and CI failures on dev or main. Not pull requests (the PR
+  # page shows the result) and not cancelled runs (a newer push on dev cancels the older run by design).
+  # The message itself is built by .github/scripts/discord-payload.jq; this job only fetches and sends.
+  notify:
+    name: Notify Discord
+    needs: [check, deploy-staging]
+    if: >-
+      !cancelled() && github.event_name != 'pull_request' &&
+      (needs.deploy-staging.result != 'skipped' || needs.check.result != 'success')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      # The jobs API gives the failed step's name and each job's duration.
+      actions: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - name: Send to Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          GH_TOKEN: ${{ github.token }}
+          # Commit messages are untrusted text: they reach the script only through env, never inlined into it.
+          COMMITS: ${{ toJSON(github.event.commits) }}
+          COMPARE_URL: ${{ github.event.compare }}
+          CHECK_RESULT: ${{ needs.check.result }}
+          DEPLOY_RESULT: ${{ needs.deploy-staging.result }}
+          SITE_URL: https://cms.dev.coauths.com
+        run: |
+          test -n "$WEBHOOK" || { echo "::error::secret DISCORD_WEBHOOK_URL is not set"; exit 1; }
+          jobs="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT/jobs" \
+            --jq '[.jobs[] | select(.name != "Notify Discord")]')"
+          if [ "$GITHUB_EVENT_NAME" = workflow_dispatch ]; then
+            # A manual run pushes no commits; show the one it ran on.
+            COMMITS="$(gh api "repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA" --jq '[{id: .sha, message: .commit.message, url: .html_url}]')"
+          fi
+          jq -n -f .github/scripts/discord-payload.jq \
+            --argjson jobs "$jobs" --argjson commits "$COMMITS" \
+            --arg check "$CHECK_RESULT" --arg deploy "$DEPLOY_RESULT" \
+            --arg repo "$GITHUB_REPOSITORY" --arg server "$GITHUB_SERVER_URL" \
+            --arg branch "$GITHUB_REF_NAME" --arg sha "$GITHUB_SHA" \
+            --arg event "$GITHUB_EVENT_NAME" --arg actor "$GITHUB_ACTOR" \
+            --arg run_number "$GITHUB_RUN_NUMBER" --arg run_attempt "$GITHUB_RUN_ATTEMPT" \
+            --arg run_url "$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/attempts/$GITHUB_RUN_ATTEMPT" \
+            --arg compare "$COMPARE_URL" --arg site "$SITE_URL" > payload.json
+          curl --fail-with-body -sS -H 'Content-Type: application/json' --data @payload.json "$WEBHOOK"
