@@ -1,11 +1,12 @@
 name: CI
 
+# dev collects features and gets the checks only; main is what deploys to staging.
 on:
   pull_request:
-    branches: [main]
+    branches: [dev, main]
   push:
-    branches: [main]
-  # Deploys the chosen branch to staging, e.g. to try a branch before it is merged.
+    branches: [dev, main]
+  # Redeploys main by hand. The staging environment accepts deployments from main only.
   workflow_dispatch:
 
 permissions:
@@ -16,13 +17,22 @@ concurrency:
   # A newer push cancels a stale run, except on main where the run may be halfway through a deploy.
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
+defaults:
+  run:
+    # Explicit bash runs steps with -e and -o pipefail, so a failure anywhere in a pipe fails the step.
+    shell: bash
+
+# Actions are pinned to full commit SHAs: a moved tag cannot swap in code that would see the deploy key.
 jobs:
   check:
     name: Lint and build
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
-      - uses: actions/checkout@v7
-      - uses: actions/setup-node@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 24
           cache: npm
@@ -31,13 +41,16 @@ jobs:
       # Also type-checks: next build runs TypeScript and fails on errors.
       - run: npm run build
 
-  # One-time setup: /opt/cms/.env on the server (see docker-compose.vps.yml), the deploy key in root's
-  # authorized_keys, and its private half as STAGING_SSH_KEY in the "staging" environment.
+  # The server's address, login and host key live only in GitHub secrets, which are masked in logs:
+  # STAGING_SSH_HOST, STAGING_SSH_USER, STAGING_SSH_KNOWN_HOSTS and STAGING_SSH_KEY. The "staging"
+  # environment's copy wins over a repository secret of the same name, so a rotated key goes to both.
+  # One-time server setup: /opt/cms/.env (see docker-compose.vps.yml) and the key's public half in authorized_keys.
   deploy-staging:
     name: Deploy to staging
-    if: github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')
+    if: github.ref == 'refs/heads/main' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
     needs: [check]
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     permissions:
       contents: read
       packages: write
@@ -50,13 +63,46 @@ jobs:
     env:
       IMAGE_TAG: ${{ github.sha }}
       REGISTRY: ghcr.io/jiyong279
-      TARGET: root@14.225.222.173
       APP_DIR: /opt/cms
-      COMPOSE: docker compose -f docker-compose.yml -f docker-compose.vps.yml
+      # On a public repo the build record would be a public artifact, and nothing needs it after the run.
+      DOCKER_BUILD_RECORD_UPLOAD: false
     steps:
-      - uses: actions/checkout@v7
-      - uses: docker/setup-buildx-action@v3
-      - uses: docker/login-action@v3
+      # First, so a broken secret fails in seconds rather than after two image builds.
+      - name: Configure SSH
+        env:
+          SSH_HOST: ${{ secrets.STAGING_SSH_HOST }}
+          SSH_USER: ${{ secrets.STAGING_SSH_USER }}
+          SSH_KNOWN_HOSTS: ${{ secrets.STAGING_SSH_KNOWN_HOSTS }}
+          SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
+        run: |
+          for name in SSH_HOST SSH_USER SSH_KNOWN_HOSTS SSH_KEY; do
+            test -n "${!name}" || { echo "::error::secret STAGING_$name is set neither in the staging environment nor in the repository"; exit 1; }
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/staging_key && chmod 600 ~/.ssh/staging_key
+          ssh-keygen -y -f ~/.ssh/staging_key > ~/.ssh/staging_key.pub || { echo "::error::STAGING_SSH_KEY is not a valid private key: set it from the key file (gh secret set STAGING_SSH_KEY --env staging < key), not by pasting"; exit 1; }
+          # Not secret: compare with ssh-keygen -lf on the key's .pub to see which key GitHub holds.
+          ssh-keygen -lf ~/.ssh/staging_key.pub
+          printf '%s\n' "$SSH_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          cat > ~/.ssh/config <<CONFIG
+          Host staging
+            HostName $SSH_HOST
+            User $SSH_USER
+            IdentityFile ~/.ssh/staging_key
+            IdentitiesOnly yes
+            BatchMode yes
+            StrictHostKeyChecking yes
+            ConnectTimeout 15
+            ServerAliveInterval 30
+          CONFIG
+          ssh staging true || { echo "::error::cannot SSH to staging: check the STAGING_SSH_* secrets and that the key's public half is in authorized_keys"; exit 1; }
+          ssh staging "test -f $APP_DIR/.env" || { echo "::error::$APP_DIR/.env is missing on the server (one-time setup)"; exit 1; }
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -65,7 +111,7 @@ jobs:
       # Each image keeps its own cache scope so neither overwrites the other's. The npm ci layer comes
       # back from cache with the same digest, so the server downloads it again only when the lockfile changes.
       - name: Build and push cms-web
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           target: runner
@@ -74,7 +120,7 @@ jobs:
           cache-from: type=gha,scope=cms-web
           cache-to: type=gha,mode=max,scope=cms-web
       - name: Build and push cms-tools
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
         with:
           context: .
           target: tools
@@ -83,19 +129,8 @@ jobs:
           cache-from: type=gha,scope=cms-tools
           cache-to: type=gha,mode=max,scope=cms-tools
 
-      - name: SSH key
-        env:
-          STAGING_SSH_KEY: ${{ secrets.STAGING_SSH_KEY }}
-        run: |
-          test -n "$STAGING_SSH_KEY" || { echo "::error::secret STAGING_SSH_KEY is not set in the staging environment"; exit 1; }
-          install -m 700 -d ~/.ssh
-          printf '%s\n' "$STAGING_SSH_KEY" > ~/.ssh/id_ed25519 && chmod 600 ~/.ssh/id_ed25519
-          echo "14.225.222.173 ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGepWbiO41Z7/AVd+C61TrlMFZDEFSZpqlNG2Y1ZhKmX" >> ~/.ssh/known_hosts
-
       - name: Ship compose files
-        run: |
-          ssh "$TARGET" "test -f $APP_DIR/.env" || { echo "::error::$APP_DIR/.env is missing on the server (one-time setup)"; exit 1; }
-          tar -czf - docker-compose.yml docker-compose.vps.yml | ssh "$TARGET" "tar -xzf - -C $APP_DIR"
+        run: tar -czf - docker-compose.yml docker-compose.vps.yml | ssh staging "tar -xzf - -C $APP_DIR"
 
       # The token goes over stdin rather than the command line, where the server's process list would show it,
       # and it expires when this run ends.
@@ -104,13 +139,13 @@ jobs:
           GHCR_USER: ${{ github.actor }}
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          printf '%s' "$GHCR_TOKEN" | ssh "$TARGET" "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
-          ssh "$TARGET" "cd $APP_DIR && IMAGE_TAG=$IMAGE_TAG $COMPOSE pull cms-web cms-migrate; status=\$?; docker logout ghcr.io >/dev/null; exit \$status"
+          printf '%s' "$GHCR_TOKEN" | ssh staging "docker login ghcr.io -u '$GHCR_USER' --password-stdin"
+          ssh staging "cd $APP_DIR && IMAGE_TAG=$IMAGE_TAG docker compose -f docker-compose.yml -f docker-compose.vps.yml pull cms-web cms-migrate; status=\$?; docker logout ghcr.io >/dev/null; exit \$status"
 
       # cms-migrate runs before cms-web is replaced; if it fails, the running release is left untouched.
       - name: Migrate and start
         run: |
-          ssh "$TARGET" IMAGE_TAG="$IMAGE_TAG" APP_DIR="$APP_DIR" bash -s <<'SCRIPT'
+          ssh staging IMAGE_TAG="$IMAGE_TAG" APP_DIR="$APP_DIR" bash -s <<'SCRIPT'
           set -euo pipefail
           cd "$APP_DIR"
           docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --no-build --wait --remove-orphans
