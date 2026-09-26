@@ -63,6 +63,8 @@ focusKeyword: EMR software
 
 Opening paragraph with **bold text**.
 
+![Receptionist welcoming a client](https://www.qub-x.com/qubx/qub-x-logo-mark-256.png "Front desk")
+
 > [!WARNING]
 > Never keep client photos on personal phones.
 
@@ -183,6 +185,8 @@ try {
   await page.click('[role="dialog"] button[type="submit"]');
   await page.waitForFunction(() => !document.querySelector('[role="dialog"]'));
   expect("the English version is filled in", (await page.$eval("main textarea", (t) => t.value)) === "How to Choose EMR Software for an Aesthetic Clinic");
+  const picture = await page.$eval(".ProseMirror img", (img) => ({ src: img.getAttribute("src"), alt: img.getAttribute("alt"), title: img.getAttribute("title") })).catch(() => null);
+  expect("the translated article keeps its picture with the translated description", picture?.src === "https://www.qub-x.com/qubx/qub-x-logo-mark-256.png" && picture?.alt === "Receptionist welcoming a client" && picture?.title === "Front desk", JSON.stringify(picture));
   await saveNow();
   await page.reload({ waitUntil: "networkidle0" });
   expect("the pasted translation remembers its source (not marked out of date)", !(await page.$eval("main", (m) => m.innerText.includes("đã được sửa sau khi bản này được dịch"))));

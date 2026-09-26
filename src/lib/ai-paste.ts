@@ -134,6 +134,17 @@ export function translatePrompt(input: {
 }) {
   const vi = input.to === "vi";
   const s = input.source;
+  // Markdown answers drop pictures and videos unless told how to carry them over.
+  const media = [
+    /<img\b/i.test(s.html) &&
+      (vi
+        ? 'Giữ mọi ảnh ở đúng vị trí, viết thành ![mô tả ảnh đã dịch](đường dẫn giữ nguyên "chú thích đã dịch"); không đổi đường dẫn ảnh.'
+        : 'Keep every image where it is, written as ![translated description](same address "translated caption"); never change the image address.'),
+    /data-youtube-video/.test(s.html) &&
+      (vi
+        ? "Giữ nguyên mọi video: chép nguyên thẻ <div data-youtube-video>…</div> vào đúng vị trí."
+        : "Keep every video: copy its <div data-youtube-video>…</div> tag unchanged, in the same place."),
+  ].filter((line) => typeof line === "string");
   const intro = vi
     ? [
         `Bạn dịch bài blog cho website ${input.site.name} (${input.site.baseUrl}).`,
@@ -141,6 +152,7 @@ export function translatePrompt(input: {
         "",
         `Hãy dịch bài dưới đây từ ${LANGUAGE[input.from].vi} sang ${LANGUAGE[input.to].vi}, tự nhiên như người bản xứ viết, giữ nguyên ý, giọng văn và bố cục. Phần SEO (tiêu đề SEO, mô tả, từ khoá) hãy viết lại theo cách người đọc ${LANGUAGE[input.to].vi} sẽ tìm kiếm.`,
         "Nội dung bài đang ở dạng HTML: <h2>/<h3> là mục, <div data-callout data-variant=\"info|success|warning\"> là khung NOTE/TIP/WARNING.",
+        ...media,
         "",
         RULES.vi,
         "",
@@ -152,6 +164,7 @@ export function translatePrompt(input: {
         "",
         `Translate the article below from ${LANGUAGE[input.from].en} into ${LANGUAGE[input.to].en}, naturally, as a native writer would, keeping the meaning, tone and structure. Rewrite the SEO fields (SEO title, description, search phrase) the way ${LANGUAGE[input.to].en} readers would search.`,
         "The body is HTML: <h2>/<h3> are sections, <div data-callout data-variant=\"info|success|warning\"> are NOTE/TIP/WARNING boxes.",
+        ...media,
         "",
         RULES.en,
         "",

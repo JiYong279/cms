@@ -102,5 +102,44 @@ for (const [label, text] of [
   check(`pasting the ${label} itself is recognised as the prompt`, !pasted.ok && pasted.error === "isPrompt", JSON.stringify(pasted).slice(0, 120));
 }
 
+// Translating with your own Claude keeps the pictures and videos of the article.
+{
+  const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
+  const html = [
+    "<h2>Mục</h2><p>Nội dung.</p>",
+    '<img src="https://cdn.qub-x.com/cms/2026/09/le-tan-a1b2c3d4.webp" alt="Lễ tân đón khách" title="Quầy lễ tân">',
+    '<div data-youtube-video=""><iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe></div>',
+  ].join("");
+  const withMedia = translatePrompt({
+    site, from: "vi", to: "en",
+    source: { title: "Bài có ảnh", excerpt: "", metaTitle: "", metaDescription: "", focusKeyword: "", html },
+  });
+  check(
+    "the translation prompt asks to keep every image, translating its description",
+    withMedia.includes("Keep every image where it is") && withMedia.includes("![translated description](same address"),
+  );
+  check("the translation prompt asks to keep videos as they are", withMedia.includes("Keep every video"));
+  const noMedia = translatePrompt({
+    site, from: "vi", to: "en",
+    source: { title: "Bài chữ", excerpt: "", metaTitle: "", metaDescription: "", focusKeyword: "", html: "<h2>Mục</h2><p>Chữ.</p>" },
+  });
+  check("an article without images or videos gets no instructions about them", !noMedia.includes("Keep every image") && !noMedia.includes("Keep every video"));
+
+  const answer = [
+    "---", "title: Article with pictures", "excerpt: Summary.", "---", "", "## Section", "", "Text.", "",
+    '![Receptionist welcoming a client](https://cdn.qub-x.com/cms/2026/09/le-tan-a1b2c3d4.webp "Front desk")',
+    "",
+    '<div data-youtube-video=""><iframe src="https://www.youtube-nocookie.com/embed/dQw4w9WgXcQ"></iframe></div>',
+  ].join("\n");
+  const read = parsePastedArticle(answer, categories);
+  const out = read.ok ? read.article.html : "";
+  check(
+    "a pasted image keeps its address, its translated description and caption",
+    /<img[^>]+src="https:\/\/cdn\.qub-x\.com\/cms\/2026\/09\/le-tan-a1b2c3d4\.webp"/.test(out) && out.includes('alt="Receptionist welcoming a client"') && out.includes('title="Front desk"'),
+    out.slice(0, 300),
+  );
+  check("a pasted video is kept", out.includes("data-youtube-video") && out.includes("youtube-nocookie.com/embed/dQw4w9WgXcQ"), out.slice(0, 300));
+}
+
 console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
 process.exit(failures ? 1 : 0);
