@@ -145,6 +145,20 @@ try {
   // 4. The activity log records both uses of the AI.
   const activity = await admin.req("/admin/activity");
   expect("activity log records the AI draft and translation", activity.text.includes("Dùng AI viết nháp bản VI") && activity.text.includes("Dùng AI dịch bản VI sang bản EN"));
+
+  // 5. "Fix with AI" in the SEO score, with the built-in AI: suggestions to review, then used.
+  await page.goto(`${CMS}/admin/posts/${postId}?locale=vi`, { waitUntil: "networkidle0" });
+  await page.click('[data-check="seoTitleLength"] [data-ai-fix], [data-check="keywordInTitle"] [data-ai-fix], [data-ai-fix-all]');
+  await page.waitForSelector("[data-seo-fix]", { visible: true });
+  expect("with an API key, 'Fix with AI' starts on the built-in AI", (await page.$eval('[data-seo-fix] [role="radio"][aria-checked="true"]', (b) => b.textContent)) === "AI tích hợp");
+  await page.click("[data-seo-fix] button::-p-text(Nhờ AI đề xuất)");
+  await page.waitForSelector("[data-seo-fix] [data-proposals]", { timeout: 20000 });
+  const fixRequest = requests.at(-1);
+  expect("the request asks only for the chosen fields through the seo_fields tool", fixRequest.tool_choice?.name === "seo_fields" && Object.keys(fixRequest.tools[0].input_schema.properties).every((k) => ["metaTitle", "metaDescription", "excerpt", "focusKeyword"].includes(k)));
+  await page.click("[data-seo-fix] button::-p-text(Dùng)");
+  await page.waitForFunction(() => !document.querySelector("[data-seo-fix]"));
+  expect("the built-in AI's SEO title goes into the editor", (await page.$eval("#field-meta-title", (e) => e.value)).startsWith("[AI] "));
+  expect("activity log records the AI SEO fix", (await admin.req("/admin/activity")).text.includes("Dùng AI sửa phần SEO bản VI"));
 } catch (error) {
   failures++;
   console.log("ERROR:", error.message);

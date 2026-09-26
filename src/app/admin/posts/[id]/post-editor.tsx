@@ -38,6 +38,7 @@ import type { ArticleFields, DraftLength } from "@/lib/ai";
 import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste";
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
+import { FIX_FOR, fieldsFor, type FixField } from "@/lib/seo-fix";
 import { imageFiles, uploadImage } from "@/lib/upload-client";
 import { cn } from "@/lib/utils";
 import { markTranslationSynced, restorePosts, savePost, trashPostAndLeave } from "../actions";
@@ -45,6 +46,7 @@ import { aiDraft, aiSourceArticle, aiTranslate } from "../ai-actions";
 import { RichTextEditor } from "./rich-text-editor";
 import { Field, Section, inputClass } from "./editor/panel";
 import { PlanningFields } from "./editor/planning-fields";
+import { SeoFixDialog } from "./editor/seo-fix-dialog";
 
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
 
@@ -176,6 +178,8 @@ export function PostEditor({
   const afterSave = useRef<string | null>(null);
   // Back to the list, calendar or log (with its filters) the article was opened from.
   const backHref = useReturnTo("/admin");
+  // "Fix with AI" from the SEO score: the fields it opens with, while open.
+  const [seoFix, setSeoFix] = useState<FixField[] | null>(null);
   const [replacement, setReplacement] = useState<{ html: string; version: number } | null>(null);
   // The locale the current content was machine-translated from, until it is saved.
   const [translatedFrom, setTranslatedFrom] = useState<Locale | null>(null);
@@ -676,6 +680,7 @@ export function PostEditor({
               result={seoScore}
               otherLanguage={otherVersion ? t.common.locales[otherVersion.locale] : ""}
               onGo={goToCheck}
+              onAiFix={(checks) => setSeoFix(fieldsFor(checks))}
               versionHref={otherVersion ? `/admin/posts/${post.id}?locale=${otherVersion.locale}` : null}
               onLeave={confirmLeave}
             />
@@ -861,6 +866,32 @@ export function PostEditor({
           )}
         </aside>
       </div>
+
+      {seoFix && (
+        <SeoFixDialog
+          postId={post.id}
+          locale={locale}
+          site={site}
+          enabled={aiEnabled}
+          initial={seoFix}
+          article={{ title, excerpt, metaTitle, metaDescription, focusKeyword, html: content.html, slug: effectiveSlug }}
+          onClose={() => setSeoFix(null)}
+          onApply={(values) => {
+            setSeoFix(null);
+            if (values.metaTitle !== undefined) setMetaTitle(values.metaTitle);
+            if (values.metaDescription !== undefined) setMetaDescription(values.metaDescription);
+            if (values.excerpt !== undefined) setExcerpt(values.excerpt);
+            if (values.focusKeyword !== undefined) setFocusKeyword(values.focusKeyword);
+            if (values.slug !== undefined) {
+              setSlug(values.slug);
+              setSlugTouched(true);
+            }
+            setDirty(true);
+            setError(null);
+            setNotice({ text: fmt(t.editor.seoFix.applied, { n: Object.keys(values).length }) });
+          }}
+        />
+      )}
 
       {aiOpen && (
         <AiDialog
@@ -1787,12 +1818,15 @@ function SeoScoreSection({
   result,
   otherLanguage,
   onGo,
+  onAiFix,
   versionHref,
   onLeave,
 }: {
   result: ScoreResult;
   otherLanguage: string;
   onGo: (id: CheckId) => void;
+  /** Opens "Fix with AI" for these checks. */
+  onAiFix: (checks: CheckId[]) => void;
   /** The other language's editor, for the translation check. */
   versionHref: string | null;
   onLeave: (event: React.MouseEvent) => void;
@@ -1805,6 +1839,8 @@ function SeoScoreSection({
   const todo = result.checks.filter((c) => c.earned < 1).sort((a, b) => missing(b) - missing(a));
   const done = result.checks.filter((c) => c.earned === 1);
   const shown = showAll ? todo : todo.slice(0, 3);
+  // Checks an AI (or the address rule) can fix: the SEO fields, the summary, the address.
+  const fixable = todo.filter((c) => FIX_FOR[c.id]).map((c) => c.id);
   const action = "mt-1 inline-flex items-center gap-1 font-semibold text-brand hover:underline";
   const groups = (["seo", "content", "trust"] as const).map((g) => {
     const list = result.checks.filter((c) => c.group === g);
@@ -1826,6 +1862,20 @@ function SeoScoreSection({
           </ul>
         </div>
       </div>
+      {fixable.length > 0 && (
+        <div className="rounded-xl border border-brand-light bg-brand-soft/50 p-3">
+          <button
+            type="button"
+            data-ai-fix-all
+            onClick={() => onAiFix(fixable)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-hover"
+          >
+            <Sparkles className="size-3.5" />
+            {s.aiFixAll}
+          </button>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-600">{s.aiFixAllHint}</p>
+        </div>
+      )}
       {todo.length > 0 && (
         <div>
           <p className="text-xs font-semibold text-zinc-600">{fmt(s.toFix, { n: todo.length })}</p>
@@ -1853,9 +1903,16 @@ function SeoScoreSection({
                       </Link>
                     )
                   ) : (
-                    <button type="button" onClick={() => onGo(c.id)} className={action}>
-                      {s.fixIt} <ArrowRight className="size-3" />
-                    </button>
+                    <span className="flex flex-wrap gap-x-3">
+                      <button type="button" onClick={() => onGo(c.id)} className={action}>
+                        {s.fixIt} <ArrowRight className="size-3" />
+                      </button>
+                      {FIX_FOR[c.id] && (
+                        <button type="button" data-ai-fix={c.id} onClick={() => onAiFix([c.id])} className={action}>
+                          <Sparkles className="size-3" /> {s.aiFix}
+                        </button>
+                      )}
+                    </span>
                   )}
                 </div>
               </li>
