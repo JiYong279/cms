@@ -32,6 +32,7 @@
 - Không default param, không tham số boolean làm cờ (ngoại lệ: default của React props).
 - Không nuốt lỗi. Ngoại lệ đã duyệt: `logActivity`, `notifySite` (chạy sau thao tác chính, không được làm hỏng nó).
 - Kiểm quyền chỉ qua `PERMISSIONS` / `can*()` trong `src/lib/permissions.ts`; không so sánh role trực tiếp.
+- Hiển thị ngày giờ luôn truyền `timeZone`: `getTimeZone()` ở server, prop `timeZone` ở client component (server chạy UTC).
 
 ## Server Action
 - Thứ tự: `requireUser()` → zod `safeParse` → kiểm quyền → ghi DB → `logActivity` → `revalidatePath` → `notifySite` nếu website bị ảnh hưởng.

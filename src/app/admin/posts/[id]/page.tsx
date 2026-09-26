@@ -4,7 +4,7 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { Locale } from "@/db/schema";
 import { NoAccess } from "@/components/no-access";
-import { getT } from "@/i18n/server";
+import { getT, getTimeZone } from "@/i18n/server";
 import { describeActivity } from "@/lib/activity-text";
 import { requireUser } from "@/lib/auth";
 import { can, canDeletePost, canEditPost, canEditTranslation } from "@/lib/permissions";
@@ -102,6 +102,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
       canDelete={canDeletePost(user, post, post.translations.map((tr) => tr.status))}
       aiEnabled={aiConfigured()}
       authorHasProfile={authorHasProfile}
+      timeZone={await getTimeZone()}
       trashed={post.deletedAt ? { at: post.deletedAt, by: trashedBy ?? null } : null}
       history={history.map((h) => ({
         at: h.at,

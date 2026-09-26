@@ -4,7 +4,7 @@ import { FileText, KeyRound, Settings, UserCog, type LucideIcon } from "lucide-r
 import { getDb, schema } from "@/db";
 import { NoAccess } from "@/components/no-access";
 import { dictionaries, fmt, type Dict } from "@/i18n";
-import { getT } from "@/i18n/server";
+import { getT, getTimeZone } from "@/i18n/server";
 import { ACTIVITY_GROUPS, type ActivityGroup } from "@/lib/activity";
 import { describeActivity } from "@/lib/activity-text";
 import { requireUser } from "@/lib/auth";
@@ -30,17 +30,17 @@ const TONES: Record<string, string> = {
   "user.locked": "bg-red-50 text-red-600",
 };
 
-function formatWhen(date: Date, t: Dict) {
-  return new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "short", timeStyle: "short", timeZone: "Asia/Ho_Chi_Minh" }).format(date);
+function formatWhen(date: Date, t: Dict, timeZone: string) {
+  return new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "short", timeStyle: "short", timeZone }).format(date);
 }
 
-function dayLabel(date: Date, t: Dict) {
+function dayLabel(date: Date, t: Dict, timeZone: string) {
   return new Intl.DateTimeFormat(t.common.dateLocale, {
     weekday: "long",
     day: "2-digit",
     month: "2-digit",
     year: "numeric",
-    timeZone: "Asia/Ho_Chi_Minh",
+    timeZone,
   }).format(date);
 }
 
@@ -48,6 +48,7 @@ export default async function ActivityPage({ searchParams }: PageProps<"/admin/a
   const me = await requireUser();
   const t = await getT();
   if (!can(me.role, "activity.view")) return <NoAccess message={t.activity.noAccess} />;
+  const timeZone = await getTimeZone();
 
   const params = await searchParams;
   const pick = (v: string | string[] | undefined) => (typeof v === "string" && v ? v : undefined);
@@ -100,7 +101,7 @@ export default async function ActivityPage({ searchParams }: PageProps<"/admin/a
   };
 
   // A date header above the first entry of each day.
-  const days = entries.map((e) => dayLabel(e.at, t));
+  const days = entries.map((e) => dayLabel(e.at, t, timeZone));
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-8 sm:py-10">
@@ -194,7 +195,7 @@ export default async function ActivityPage({ searchParams }: PageProps<"/admin/a
                       )}
                     </div>
                     <time dateTime={e.at.toISOString()} className="shrink-0 text-xs text-zinc-400">
-                      {formatWhen(e.at, t)}
+                      {formatWhen(e.at, t, timeZone)}
                     </time>
                   </div>
                 </li>

@@ -67,6 +67,8 @@ type Props = {
   aiEnabled: boolean;
   /** The article's author has a public profile in this language (see the Account page). */
   authorHasProfile: boolean;
+  /** The viewer's zone (getTimeZone), so dates read the same when rendered on the server and in the browser. */
+  timeZone: string;
 };
 
 const PLACEHOLDER_SLUG = /^bai-viet-[0-9a-f]{8}$/;
@@ -77,8 +79,8 @@ function toLocalInput(date: Date | null) {
   return local.toISOString().slice(0, 16);
 }
 
-function formatTime(date: Date, dateLocale: string) {
-  return new Intl.DateTimeFormat(dateLocale, { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }).format(
+function formatTime(date: Date, dateLocale: string, timeZone: string) {
+  return new Intl.DateTimeFormat(dateLocale, { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", timeZone }).format(
     date,
   );
 }
@@ -91,11 +93,12 @@ function countWords(html: string) {
  * Date and reading time as the website prints them: in the article's language (`locale`), not the
  * interface language, so the header preview matches the published page.
  */
-function formatDay(date: Date, locale: Locale) {
+function formatDay(date: Date, locale: Locale, timeZone: string) {
   return new Intl.DateTimeFormat(locale === "vi" ? "vi-VN" : "en-US", {
     day: "2-digit",
     month: locale === "vi" ? "2-digit" : "short",
     year: "numeric",
+    timeZone,
   }).format(date);
 }
 
@@ -126,10 +129,11 @@ export function PostEditor({
   history,
   aiEnabled,
   authorHasProfile,
+  timeZone,
 }: Props) {
   const router = useRouter();
   const { t } = useI18n();
-  const time = (date: Date) => formatTime(date, t.common.dateLocale);
+  const time = (date: Date) => formatTime(date, t.common.dateLocale, timeZone);
   const locked = lockedByRole || !!trashed;
   const [title, setTitle] = useState(translation?.title ?? "");
   const [excerpt, setExcerpt] = useState(translation?.excerpt ?? "");
@@ -220,7 +224,7 @@ export function PostEditor({
       if (nextStatus === "published") {
         setNotice({ text: fmt(p.published, { site: site.name }), href: `${site.viewOrigin}${site.blogPath}/${result.slug}` });
       } else if (nextStatus === "scheduled") {
-        setNotice({ text: fmt(p.scheduled, { time: formatTime(new Date(nextSchedule), t.common.dateLocale) }) });
+        setNotice({ text: fmt(p.scheduled, { time: time(new Date(nextSchedule)) }) });
       } else {
         setNotice({ text: p.submitted });
       }
@@ -553,7 +557,7 @@ export function PostEditor({
             {/* Same order and look as the article header on the website. */}
             <div className="mt-8 flex flex-wrap items-center gap-3 text-xs font-bold text-[#5f6368]">
               <span className="rounded-full bg-brand-tint px-3 py-1.5 text-brand">{categoryName ?? t.editor.canvas.uncategorized}</span>
-              <span suppressHydrationWarning>{formatDay(publishedAt ? new Date(publishedAt) : (translation?.publishedAt ?? new Date()), locale)}</span>
+              <span suppressHydrationWarning>{formatDay(publishedAt ? new Date(publishedAt) : (translation?.publishedAt ?? new Date()), locale, timeZone)}</span>
               <span aria-hidden>•</span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock3 className="size-3.5" />
