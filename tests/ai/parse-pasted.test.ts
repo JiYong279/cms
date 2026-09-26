@@ -141,5 +141,27 @@ for (const [label, text] of [
   check("a pasted video is kept", out.includes("data-youtube-video") && out.includes("youtube-nocookie.com/embed/dQw4w9WgXcQ"), out.slice(0, 300));
 }
 
+// Outside facts carry a link to where they come from, official sources first, never made up.
+check(
+  "the draft prompt asks to link every outside fact, official sources first, never inventing links",
+  prompt.includes("Dẫn nguồn (bắt buộc)") && prompt.includes("moh.gov.vn") && prompt.includes("không bịa link") && prompt.includes("## Nguồn tham khảo"),
+);
+{
+  const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
+  const linked = translatePrompt({
+    site, from: "vi", to: "en",
+    source: { title: "Bài có nguồn", excerpt: "", metaTitle: "", metaDescription: "", focusKeyword: "", html: '<p>Theo <a href="https://moh.gov.vn/">Bộ Y tế</a>.</p>' },
+  });
+  check("a translation keeps every link and source", linked.includes("Keep every link and source"));
+  const answer = ["---", "title: Bài có nguồn", "---", "", "## Mục", "", "Theo [Bộ Y tế](https://moh.gov.vn/), …", "", "## Nguồn tham khảo", "", "- [Bộ Y tế](https://moh.gov.vn/)"].join("\n");
+  const read = parsePastedArticle(answer, categories);
+  const html = read.ok ? read.article.html : "";
+  check(
+    "a pasted source link becomes a real link, and the sources get their own section",
+    html.includes('<a href="https://moh.gov.vn/">Bộ Y tế</a>') && html.includes("<h2>Nguồn tham khảo</h2>"),
+    html.slice(0, 300),
+  );
+}
+
 console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
 process.exit(failures ? 1 : 0);

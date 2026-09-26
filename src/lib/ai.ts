@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { Locale } from "@/db/schema";
 import { siteBrief } from "./ai-brief";
+import { SOURCE_RULES_NO_BROWSING } from "./ai-sources";
 import { seoFixPrompt, type AiField, type FixArticle } from "./seo-fix";
 
 /**
@@ -146,7 +147,8 @@ Write in ${LANGUAGE[input.locale]}, in a clear, warm and professional voice. Pre
 short paragraphs and lists over generic statements. Do not invent statistics, prices, laws or
 regulations; when a point depends on a regulation, say readers should check the current text.
 ${glossaryText(input.site)}
-${BODY_HTML_RULES}`;
+${BODY_HTML_RULES}
+${SOURCE_RULES_NO_BROWSING}`;
   const prompt = [
     `Write an article of about ${DRAFT_LENGTHS[input.length]} words.`,
     `Topic: ${input.topic}`,

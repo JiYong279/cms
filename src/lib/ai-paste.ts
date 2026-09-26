@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import type { Locale } from "@/db/schema";
 import { siteBrief } from "./ai-brief";
+import { SOURCE_RULES } from "./ai-sources";
 
 /**
  * Writing with the person's own Claude (or any chat assistant) instead of the CMS's API:
@@ -102,6 +103,8 @@ export function draftPrompt(input: {
         "",
         "Giọng văn rõ ràng, thân thiện, chuyên nghiệp; ưu tiên ví dụ cụ thể. Không bịa số liệu, giá, luật hay quy định; khi nội dung phụ thuộc vào quy định, nhắc người đọc kiểm tra văn bản hiện hành. Kết bài bằng một khung TIP tóm tắt điểm chính.",
         "",
+        SOURCE_RULES.vi,
+        "",
         RULES.vi,
         "",
         FORMAT.vi(input.categories),
@@ -116,6 +119,8 @@ export function draftPrompt(input: {
         input.focusKeyword.trim() ? `Main search phrase: ${input.focusKeyword.trim()}` : null,
         "",
         "Clear, warm, professional voice; prefer concrete examples. Do not invent statistics, prices, laws or regulations; when a point depends on a regulation, tell readers to check the current text. End with a TIP box that sums up the key point.",
+        "",
+        SOURCE_RULES.en,
         "",
         RULES.en,
         "",
@@ -140,6 +145,10 @@ export function translatePrompt(input: {
       (vi
         ? 'Giữ mọi ảnh ở đúng vị trí, viết thành ![mô tả ảnh đã dịch](đường dẫn giữ nguyên "chú thích đã dịch"); không đổi đường dẫn ảnh.'
         : 'Keep every image where it is, written as ![translated description](same address "translated caption"); never change the image address.'),
+    /<a\b[^>]*\bhref=/i.test(s.html) &&
+      (vi
+        ? "Giữ mọi link và nguồn tham khảo, viết thành [chữ đã dịch](đường dẫn giữ nguyên); không đổi, không bỏ đường dẫn nào."
+        : "Keep every link and source, written as [translated text](same address); never change or drop an address."),
     /data-youtube-video/.test(s.html) &&
       (vi
         ? "Giữ nguyên mọi video: chép nguyên thẻ <div data-youtube-video>…</div> vào đúng vị trí."
