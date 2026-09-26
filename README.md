@@ -44,7 +44,7 @@ Nút **AI** trong trang soạn bài viết bản nháp từ chủ đề, hoặc 
 CMS chạy bằng Docker cùng Postgres: xem hướng dẫn đầu file `docker-compose.yml`. Mỗi lần push lên `main`, CI (`.github/workflows/ci.yml`) build image, đẩy lên GHCR rồi deploy lên staging `cms.dev.coauths.com` (`docker-compose.vps.yml`).
 
 1. **Database**: container `cms-postgres` trong `docker-compose.yml`; `cms-migrate` tự chạy migration trước mỗi lần khởi động.
-2. **Ảnh**: đặt các biến `S3_*` trỏ tới DigitalOcean Spaces (máy local dùng MinIO: `docker compose -f docker-compose.minio.yml up -d`), xem `.env.example`. Không đặt thì ảnh nằm trong volume `cms_uploads` của server.
+2. **Ảnh**: trên staging, ảnh nằm trong MinIO riêng của CMS (`cms-minio` trong `docker-compose.vps.yml`) và được đọc công khai (chỉ đọc) ở `<CMS_PUBLIC_URL>/media/` qua edge proxy. Cần tạo một lần trên server: `/opt/cms/.env.minio` (`MINIO_ROOT_USER`, `MINIO_ROOT_PASSWORD`) và thêm `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` vào `/opt/cms/.env`; `cms-minio-init` tự tạo bucket và user chỉ-upload cho app. Máy local dùng MinIO: `docker compose -f docker-compose.minio.yml up -d`, xem `.env.example`.
 3. **Biến môi trường**: `POSTGRES_PASSWORD`, `CMS_PUBLIC_URL`, `CMS_REVALIDATE_SECRET`, `CRON_SECRET` (xem `.env.example`).
 4. **Tài khoản đầu tiên**: `docker compose run --rm cms-migrate npm run db:seed` (với `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`); chép bài từ máy local: `npm run db:copy-to-postgres`.
 5. **Hẹn giờ đăng bài**: container `cms-cron` gọi `GET /api/cron/publish-scheduled` 5 phút một lần với header `Authorization: Bearer <CRON_SECRET>`.
