@@ -42,6 +42,8 @@ import { cn } from "@/lib/utils";
 import { markTranslationSynced, restorePosts, savePost, trashPostAndLeave } from "../actions";
 import { aiDraft, aiSourceArticle, aiTranslate } from "../ai-actions";
 import { RichTextEditor } from "./rich-text-editor";
+import { Field, Section, inputClass } from "./editor/panel";
+import { PlanningFields } from "./editor/planning-fields";
 
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
 
@@ -55,6 +57,8 @@ type Props = {
   /** `viewOrigin` is where to open the article to look at it (see viewOrigin in lib/posts). */
   site: { id: string; name: string; baseUrl: string; viewOrigin: string; blogPath: string };
   categories: { id: string; name: string }[];
+  /** The editorial calendar's plan for the article (saved on its own, see PlanningFields). */
+  planning: { plannedFor: string | null; assigneeId: string | null; assignees: { id: string; name: string }[]; canAssign: boolean };
   canPublish: boolean;
   /** This language is live and the user may not change live articles. */
   locked: boolean;
@@ -122,6 +126,7 @@ export function PostEditor({
   staleSource,
   site,
   categories,
+  planning,
   canPublish,
   locked: lockedByRole,
   canDelete,
@@ -657,9 +662,18 @@ export function PostEditor({
                 </p>
               )}
             </Section>
+            <Section id="planning" title={t.editor.panel.planning} hint={t.editor.panel.planningHint}>
+              <PlanningFields
+                postId={post.id}
+                plannedFor={planning.plannedFor}
+                assigneeId={planning.assigneeId}
+                assignees={planning.assignees}
+                canAssign={planning.canAssign}
+              />
+            </Section>
             <Section title={t.editor.panel.publish}>
               <Field label={t.editor.panel.status}>
-                <select value={status} onChange={(e) => edit(setStatus)(e.target.value as PostStatus)} className={inputClass}>
+                <select id="field-status" value={status} onChange={(e) => edit(setStatus)(e.target.value as PostStatus)} className={inputClass}>
                   {(Object.keys(STATUS) as PostStatus[]).map((s) => (
                     <option key={s} value={s} disabled={!canPublish && (s === "published" || s === "scheduled")}>
                       {t.common.status[s]}
@@ -1441,33 +1455,6 @@ function AiDialog({
         </div>
       </form>
     </div>
-  );
-}
-
-const inputClass =
-  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/20 disabled:bg-zinc-100";
-
-function Section({ id, title, hint, children }: { id?: string; title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <section id={id} className="flex scroll-mt-4 flex-col gap-4 px-5 py-5">
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">{title}</h2>
-        {hint && <p className="mt-1 text-xs text-zinc-400">{hint}</p>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
-      <span className="flex items-center justify-between">
-        {label}
-        {hint}
-      </span>
-      {children}
-    </label>
   );
 }
 

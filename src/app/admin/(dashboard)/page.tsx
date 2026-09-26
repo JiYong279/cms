@@ -3,6 +3,7 @@ import { count, desc, isNull } from "drizzle-orm";
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock, Search } from "lucide-react";
 import { getDb, schema } from "@/db";
 import type { PostStatus } from "@/db/schema";
+import { PostsLayoutSwitch } from "@/components/posts-layout-switch";
 import { fmt, type Dict } from "@/i18n";
 import { getLang, getT, getTimeZone } from "@/i18n/server";
 import { requireUser } from "@/lib/auth";
@@ -175,10 +176,13 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
             {seesAll ? fmt(t.posts.subtitleAll, { sites: sites.map((s) => s.name).join(t.posts.and) }) : t.posts.subtitleOwn}
           </p>
         </div>
-        <NewPostButton
-          sites={sites.map((s) => ({ id: s.id, name: s.name, baseUrl: s.baseUrl, posts: postCounts.get(s.id) ?? 0 }))}
-          defaultSiteId={site}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <PostsLayoutSwitch current="list" site={site} />
+          <NewPostButton
+            sites={sites.map((s) => ({ id: s.id, name: s.name, baseUrl: s.baseUrl, posts: postCounts.get(s.id) ?? 0 }))}
+            defaultSiteId={site}
+          />
+        </div>
       </header>
 
       <section className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">

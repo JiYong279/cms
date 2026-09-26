@@ -141,14 +141,14 @@ try {
   await page.keyboard.press("s");
   await page.keyboard.up("Control");
   await page.waitForFunction(() => document.body.innerText.includes("Đã lưu"), { timeout: 20000 });
-  expect("a saved draft stays a draft", (await page.$eval("aside select", (s) => s.value)) === "draft");
+  expect("a saved draft stays a draft", (await page.$eval("#field-status", (s) => s.value)) === "draft");
   await page.click("header button::-p-text(Đăng bài)");
   await page.waitForSelector('[role="dialog"]', { visible: true });
   expect("publish dialog names the website", await page.$eval('[role="dialog"]', (d) => d.innerText.includes("Đăng bài lên Qub-X")));
   await shot(page, "06-publish-dialog");
   await page.click('[role="dialog"] button[type="submit"]');
   await page.waitForFunction(() => document.querySelector('[role="status"]')?.innerText.includes("Đã đăng bài lên"), { timeout: 20000 });
-  expect("publishing sets the status to published", (await page.$eval("aside select", (s) => s.value)) === "published");
+  expect("publishing sets the status to published", (await page.$eval("#field-status", (s) => s.value)) === "published");
   await page.waitForSelector("header button::-p-text(Cập nhật)", { timeout: 10000 });
   expect("once live, the header offers Update instead of Publish", !(await page.$("header button::-p-text(Đăng bài)")));
   await page.evaluate(() => document.querySelector("main").scrollTo(0, 0));

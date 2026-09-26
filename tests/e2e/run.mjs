@@ -5,7 +5,7 @@
 // Sign-in: E2E_ADMIN_EMAIL / E2E_ADMIN_PASSWORD (defaults: the local demo admin).
 import { failed } from "./lib.mjs";
 
-for (const suite of ["permissions", "media", "publishing", "i18n", "time-zone"]) {
+for (const suite of ["permissions", "planning", "media", "publishing", "i18n", "time-zone"]) {
   console.log(`\n# ${suite}`);
   await import(`./${suite}.mjs`);
 }

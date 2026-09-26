@@ -1,5 +1,5 @@
 import { notFound } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { Locale } from "@/db/schema";
@@ -7,7 +7,7 @@ import { NoAccess } from "@/components/no-access";
 import { getT, getTimeZone } from "@/i18n/server";
 import { describeActivity } from "@/lib/activity-text";
 import { requireUser } from "@/lib/auth";
-import { can, canDeletePost, canEditPost, canEditTranslation } from "@/lib/permissions";
+import { ROLES, can, canDeletePost, canEditPost, canEditTranslation } from "@/lib/permissions";
 import { aiConfigured } from "@/lib/ai";
 import { LOCALES, isStale, viewOrigin } from "@/lib/posts";
 import { PostEditor, type LocaleTab } from "./post-editor";
@@ -65,6 +65,16 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
     .orderBy(desc(schema.activityLog.at))
     .limit(10);
 
+  // Who may look after the article: active editors and admins, and whoever looks after it now.
+  const assignees = (
+    await db
+      .select({ id: schema.users.id, name: schema.users.name, role: schema.users.role, active: schema.users.active })
+      .from(schema.users)
+      .where(inArray(schema.users.role, ROLES.filter((r) => can(r, "posts.editAny"))))
+  )
+    .filter((u) => u.active || u.id === post.assigneeId)
+    .sort((a, b) => a.name.localeCompare(b.name));
+
   const categories = await db
     .select()
     .from(schema.categories)
@@ -97,6 +107,12 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
         blogPath: post.site.blogPaths[locale],
       }}
       categories={categories.map((c) => ({ id: c.id, name: c.names[locale] ?? c.names.vi ?? "" }))}
+      planning={{
+        plannedFor: post.plannedFor,
+        assigneeId: post.assigneeId,
+        assignees: assignees.map((a) => ({ id: a.id, name: a.name })),
+        canAssign: can(user.role, "posts.assign"),
+      }}
       canPublish={can(user.role, "posts.publish")}
       locked={!canEditTranslation(user, translation?.status ?? null)}
       canDelete={canDeletePost(user, post, post.translations.map((tr) => tr.status))}
