@@ -733,16 +733,20 @@ export function PostEditor({
                 </Field>
               )}
               {canPublish && status !== "scheduled" && (
-                <Field label={t.editor.panel.publishedAt} hint={t.editor.panel.publishedAtHint}>
-                  <input
-                    id="field-published-at"
-                    type="datetime-local"
-                    value={publishedAt}
-                    onChange={(e) => edit(setPublishedAt)(e.target.value)}
-                    className={inputClass}
-                    suppressHydrationWarning
-                  />
-                </Field>
+                <div className="flex flex-col gap-1.5">
+                  {/* Field's hint slot is for short counters; this explanation is a sentence, so it goes below. */}
+                  <Field label={t.editor.panel.publishedAt}>
+                    <input
+                      id="field-published-at"
+                      type="datetime-local"
+                      value={publishedAt}
+                      onChange={(e) => edit(setPublishedAt)(e.target.value)}
+                      className={inputClass}
+                      suppressHydrationWarning
+                    />
+                  </Field>
+                  <p className="text-xs leading-relaxed text-zinc-500">{t.editor.panel.publishedAtHint}</p>
+                </div>
               )}
               {!canPublish && (
                 <p className="text-xs leading-relaxed text-zinc-500">
