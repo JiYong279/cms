@@ -51,6 +51,12 @@ export const users = pgTable("users", {
   passwordHash: text("password_hash").notNull(),
   role: roleEnum("role").notNull().default("writer"),
   active: boolean("active").notNull().default(true),
+  /**
+   * Public author profile per locale, shown with the articles this person wrote. Left empty, the
+   * person's name is never published and their articles are credited to the website.
+   */
+  jobTitles: jsonb("job_titles").$type<Partial<Record<Locale, string>>>().notNull().default({}),
+  bios: jsonb("bios").$type<Partial<Record<Locale, string>>>().notNull().default({}),
   ...timestamps,
 });
 

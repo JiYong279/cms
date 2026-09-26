@@ -39,13 +39,15 @@ Nút **AI** trong trang soạn bài viết bản nháp từ chủ đề, hoặc 
 - Bật bằng `ANTHROPIC_API_KEY` (tạo ở console.anthropic.com). `AI_MODEL` chọn model Claude, `AI_DAILY_LIMIT` giới hạn số lần mỗi người mỗi 24 giờ (mặc định 30).
 - Giọng văn và đối tượng đọc của từng website nằm trong `SITE_BRIEFS` ở `src/lib/ai.ts`.
 
-## Đưa lên server (ví dụ Vercel)
+## Đưa lên server (Docker)
 
-1. **Database**: tạo Postgres (Neon hoặc Supabase), đặt `DATABASE_URL`, chạy `npm run db:migrate` từ máy của bạn (hoặc trong bước build).
-2. **Ảnh**: tạo bucket Cloudflare R2 (hoặc S3) có địa chỉ công khai, đặt các biến `S3_*`. Không có bước này, ảnh tải lên sẽ mất vì Vercel không giữ file.
-3. **Biến môi trường**: `CMS_PUBLIC_URL`, `CMS_REVALIDATE_SECRET`, `CRON_SECRET` (xem `.env.example`).
-4. **Tài khoản đầu tiên**: `SEED_ADMIN_EMAIL=… SEED_ADMIN_PASSWORD=… DATABASE_URL=… npm run db:seed`, rồi nạp bài: `npm run db:import-qubx -- --replace`.
-5. **Hẹn giờ đăng bài**: cho một lịch chạy gọi `GET /api/cron/publish-scheduled` vài phút một lần (Vercel Cron, hoặc cron-job.org với header `Authorization: Bearer <CRON_SECRET>`). Không có lịch này, bài hẹn giờ vẫn lên đúng giờ nhưng website có thể chậm tới 5 phút.
+CMS chạy bằng Docker cùng Postgres: xem hướng dẫn đầu file `docker-compose.yml`. Mỗi lần push lên `main`, CI (`.github/workflows/ci.yml`) build image, đẩy lên GHCR rồi deploy lên staging `cms.dev.coauths.com` (`docker-compose.vps.yml`).
+
+1. **Database**: container `cms-postgres` trong `docker-compose.yml`; `cms-migrate` tự chạy migration trước mỗi lần khởi động.
+2. **Ảnh**: đặt các biến `S3_*` trỏ tới DigitalOcean Spaces (máy local dùng MinIO: `docker compose -f docker-compose.minio.yml up -d`), xem `.env.example`. Không đặt thì ảnh nằm trong volume `cms_uploads` của server.
+3. **Biến môi trường**: `POSTGRES_PASSWORD`, `CMS_PUBLIC_URL`, `CMS_REVALIDATE_SECRET`, `CRON_SECRET` (xem `.env.example`).
+4. **Tài khoản đầu tiên**: `docker compose run --rm cms-migrate npm run db:seed` (với `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`); chép bài từ máy local: `npm run db:copy-to-postgres`.
+5. **Hẹn giờ đăng bài**: container `cms-cron` gọi `GET /api/cron/publish-scheduled` 5 phút một lần với header `Authorization: Bearer <CRON_SECRET>`.
 6. **Website Qub-X** (Vercel của `coauths-web1`): đặt `CMS_API_URL=<địa chỉ CMS>` và cùng `CMS_REVALIDATE_SECRET`.
 7. Trong CMS, **Cài đặt website → Qub-X**: đổi **URL làm mới** thành `https://www.qub-x.com/api/cms/revalidate`, bấm **Gửi thử**.
 8. **Sao lưu**: bật sao lưu tự động / point-in-time restore của nhà cung cấp Postgres.

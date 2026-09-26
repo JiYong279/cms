@@ -10,6 +10,7 @@ import { getT } from "@/i18n/server";
 import { logActivity } from "@/lib/activity";
 import { requireUser, revokeSessions } from "@/lib/auth";
 import { isWeakPassword, MIN_PASSWORD_LENGTH } from "@/lib/passwords";
+import { notifySite } from "@/lib/revalidate";
 import type { FormState } from "../users/actions";
 
 /** Validation schemas, with messages in the visitor's language. */
@@ -41,6 +42,37 @@ export async function updateProfile(_prev: FormState, formData: FormData): Promi
   await db.update(schema.users).set({ name: parsed.data.name }).where(eq(schema.users.id, user.id));
   revalidatePath("/admin", "layout");
   return { success: t.users.account.success.nameUpdated };
+}
+
+const AuthorProfile = z.object({
+  jobTitleVi: z.string().trim().max(80),
+  jobTitleEn: z.string().trim().max(80),
+  bioVi: z.string().trim().max(400),
+  bioEn: z.string().trim().max(400),
+});
+
+/** The public byline shown with this person's articles on the websites. */
+export async function updateAuthorProfile(_prev: FormState, formData: FormData): Promise<FormState> {
+  const t = await getT();
+  const user = await requireUser();
+  const parsed = AuthorProfile.safeParse({
+    jobTitleVi: formData.get("jobTitleVi") ?? "",
+    jobTitleEn: formData.get("jobTitleEn") ?? "",
+    bioVi: formData.get("bioVi") ?? "",
+    bioEn: formData.get("bioEn") ?? "",
+  });
+  if (!parsed.success) return { error: t.posts.errors.invalid };
+  const p = parsed.data;
+
+  const db = await getDb();
+  await db
+    .update(schema.users)
+    .set({ jobTitles: { vi: p.jobTitleVi, en: p.jobTitleEn }, bios: { vi: p.bioVi, en: p.bioEn } })
+    .where(eq(schema.users.id, user.id));
+  revalidatePath("/admin/account");
+  // The byline appears on every live article this person wrote.
+  for (const site of await db.select({ id: schema.sites.id }).from(schema.sites)) notifySite(site.id);
+  return { success: t.users.account.success.authorUpdated };
 }
 
 export async function changePassword(_prev: FormState, formData: FormData): Promise<FormState> {

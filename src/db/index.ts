@@ -10,7 +10,7 @@ const MIGRATIONS_FOLDER = path.join(process.cwd(), "drizzle");
 /**
  * Local development runs on PGlite (Postgres compiled to WASM, stored in `.data/pglite`),
  * so nothing has to be installed. Set DATABASE_URL to use a real Postgres server instead
- * (Supabase, Neon, RDS…) — required on Vercel, where the filesystem is not persistent.
+ * (the cms-postgres container in docker-compose.yml, or any hosted Postgres).
  */
 async function connect(): Promise<Database> {
   const url = process.env.DATABASE_URL?.trim();

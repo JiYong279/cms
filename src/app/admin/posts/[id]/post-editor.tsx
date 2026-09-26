@@ -7,10 +7,14 @@ import type { JSONContent } from "@tiptap/react";
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   CalendarClock,
   Check,
   CircleAlert,
   CircleCheck,
+  CircleDashed,
+  CircleX,
+  Copy,
   Clock3,
   ExternalLink,
   ImagePlus,
@@ -30,11 +34,13 @@ import type { Locale, PostStatus, PostTranslation } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import type { ArticleFields, DraftLength } from "@/lib/ai";
+import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste";
 import { STATUS, slugify } from "@/lib/posts";
+import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
 import { imageFiles, uploadImage } from "@/lib/upload-client";
 import { cn } from "@/lib/utils";
 import { markTranslationSynced, restorePosts, savePost, trashPostAndLeave } from "../actions";
-import { aiDraft, aiTranslate } from "../ai-actions";
+import { aiDraft, aiSourceArticle, aiTranslate } from "../ai-actions";
 import { RichTextEditor } from "./rich-text-editor";
 
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
@@ -59,6 +65,8 @@ type Props = {
   history: { at: Date; who: string; summary: string }[];
   /** ANTHROPIC_API_KEY is set, so the AI assistant can run. */
   aiEnabled: boolean;
+  /** The article's author has a public profile in this language (see the Account page). */
+  authorHasProfile: boolean;
 };
 
 const PLACEHOLDER_SLUG = /^bai-viet-[0-9a-f]{8}$/;
@@ -117,6 +125,7 @@ export function PostEditor({
   trashed,
   history,
   aiEnabled,
+  authorHasProfile,
 }: Props) {
   const router = useRouter();
   const { t } = useI18n();
@@ -133,6 +142,7 @@ export function PostEditor({
   const [slugTouched, setSlugTouched] = useState(!!translation && !PLACEHOLDER_SLUG.test(translation.slug));
   const [status, setStatus] = useState<PostStatus>(translation?.status ?? "draft");
   const [scheduledAt, setScheduledAt] = useState(toLocalInput(translation?.scheduledAt ?? null));
+  const [publishedAt, setPublishedAt] = useState(toLocalInput(translation?.publishedAt ?? null));
   const [metaTitle, setMetaTitle] = useState(translation?.metaTitle ?? "");
   const [metaDescription, setMetaDescription] = useState(translation?.metaDescription ?? "");
   const [focusKeyword, setFocusKeyword] = useState(translation?.focusKeyword ?? "");
@@ -188,6 +198,7 @@ export function PostEditor({
         focusKeyword,
         noindex,
         scheduledAt: nextStatus === "scheduled" && nextSchedule ? new Date(nextSchedule).toISOString() : null,
+        publishedAt: publishedAt ? new Date(publishedAt).toISOString() : null,
         categoryId: categoryId || null,
         featured,
         coverImageUrl: coverImageUrl.trim(),
@@ -231,6 +242,7 @@ export function PostEditor({
     focusKeyword,
     noindex,
     scheduledAt,
+    publishedAt,
     categoryId,
     featured,
     coverImageUrl,
@@ -262,6 +274,42 @@ export function PostEditor({
     if (dirty && !window.confirm(t.editor.confirmLeave)) event.preventDefault();
   }
 
+  /**
+   * Brings a field into view and focuses it, opening the side panel (a drawer on small screens)
+   * when the field lives there, and flashes it so the eye finds it.
+   */
+  function goTo(targetId: string) {
+    const target = document.getElementById(targetId);
+    if (!target) return;
+    if (target.closest("aside")) {
+      if (window.matchMedia("(min-width: 1024px)").matches) setPanelOpen(true);
+      else setDrawerOpen(true);
+    }
+    requestAnimationFrame(() => {
+      target.scrollIntoView({ behavior: "smooth", block: "center" });
+      const focusable = (target.matches("input, textarea, select") ? target : target.querySelector(".ProseMirror, input, textarea, button")) as HTMLElement | null;
+      focusable?.focus({ preventScroll: true });
+      target.animate(
+        [{ boxShadow: "0 0 0 4px rgb(32 181 110 / 0.45)", borderRadius: "10px" }, { boxShadow: "0 0 0 4px rgb(32 181 110 / 0)", borderRadius: "10px" }],
+        { duration: 1600, easing: "ease-out" },
+      );
+    });
+  }
+
+  function goToCheck(id: CheckId) {
+    // An image still missing its description: select it, which opens its description box.
+    if (id === "imagesAlt") {
+      const image = document.querySelector<HTMLElement>('.ProseMirror img:not([alt]), .ProseMirror img[alt=""]');
+      if (image) {
+        image.scrollIntoView({ behavior: "smooth", block: "center" });
+        image.click();
+        return;
+      }
+    }
+    const field = CHECK_TARGET[id];
+    if (field) goTo(field);
+  }
+
   function togglePanel() {
     if (window.matchMedia("(min-width: 1024px)").matches) setPanelOpen((v) => !v);
     else setDrawerOpen((v) => !v);
@@ -278,6 +326,20 @@ export function PostEditor({
   const isLive = translation?.status === "published" || translation?.status === "scheduled";
   const primaryIsSave = isLive || (!canPublish && translation?.status === "in_review");
   const otherVersion = locales.find((tab) => tab.locale !== locale);
+  const seoScore = scoreArticle({
+    title,
+    metaTitle,
+    excerpt,
+    metaDescription,
+    focusKeyword,
+    slug: effectiveSlug,
+    html: content.html,
+    categoryId: categoryId || null,
+    coverImageUrl: coverImageUrl.trim() || null,
+    authorHasProfile,
+    translationInSync: !!otherVersion?.status && !otherVersion.stale && !locales.find((tab) => tab.locale === locale)?.stale,
+    siteHost: new URL(site.baseUrl).host,
+  });
   const otherUnpublished = locales.filter((tab) => tab.locale !== locale && tab.status !== "published");
   // The hint names the toolbar button in bold: split the sentence around it.
   const [outlineEmptyBefore, outlineEmptyAfter = ""] = t.editor.panel.outlineEmpty.split("{h2}");
@@ -338,6 +400,15 @@ export function PostEditor({
               </>
             ) : null}
           </span>
+          <button
+            type="button"
+            onClick={() => goTo("seo-score")}
+            title={t.editor.score.badgeTitle}
+            data-seo-badge={seoScore.score}
+            className={cn("rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset", BADGE_COLOR[seoScore.level])}
+          >
+            SEO {seoScore.score}
+          </button>
           <span className={cn("hidden rounded-full px-2.5 py-1 text-xs font-medium sm:inline", STATUS[status].className)}>
             {t.common.status[status]}
           </span>
@@ -482,7 +553,7 @@ export function PostEditor({
             {/* Same order and look as the article header on the website. */}
             <div className="mt-8 flex flex-wrap items-center gap-3 text-xs font-bold text-[#5f6368]">
               <span className="rounded-full bg-brand-tint px-3 py-1.5 text-brand">{categoryName ?? t.editor.canvas.uncategorized}</span>
-              <span suppressHydrationWarning>{formatDay(translation?.publishedAt ?? new Date(), locale)}</span>
+              <span suppressHydrationWarning>{formatDay(publishedAt ? new Date(publishedAt) : (translation?.publishedAt ?? new Date()), locale)}</span>
               <span aria-hidden>•</span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock3 className="size-3.5" />
@@ -490,6 +561,7 @@ export function PostEditor({
               </span>
             </div>
             <textarea
+              id="field-title"
               value={title}
               onChange={(e) => edit(setTitle)(e.target.value.replace(/\n/g, ""))}
               // In the article's language, like the header preview above.
@@ -499,6 +571,7 @@ export function PostEditor({
               className="mt-5 w-full resize-none overflow-hidden bg-transparent text-4xl font-extrabold leading-[1.16] tracking-[-0.035em] text-ink outline-none field-sizing-content placeholder:text-zinc-300 disabled:bg-transparent sm:text-[3.25rem]"
             />
             <textarea
+              id="field-excerpt"
               value={excerpt}
               onChange={(e) => edit(setExcerpt)(e.target.value)}
               placeholder={t.editor.canvas.excerptPlaceholder}
@@ -507,23 +580,27 @@ export function PostEditor({
               className="mt-5 w-full resize-none overflow-hidden bg-transparent text-lg leading-8 text-ink-soft outline-none field-sizing-content placeholder:text-zinc-300 disabled:bg-transparent sm:text-xl"
             />
 
-            <CoverImage
-              url={coverImageUrl}
-              siteId={site.id}
-              disabled={locked}
-              onChange={edit(setCoverImageUrl)}
-              onError={setError}
-            />
+            <div id="field-cover">
+              <CoverImage
+                url={coverImageUrl}
+                siteId={site.id}
+                disabled={locked}
+                onChange={edit(setCoverImageUrl)}
+                onError={setError}
+              />
+            </div>
             <hr className="my-8 border-line" />
 
-            <RichTextEditor
-              content={content.json}
-              replacement={replacement}
-              onChange={edit(setContent)}
-              siteId={site.id}
-              onError={setError}
-              editable={!locked}
-            />
+            <div id="field-content">
+              <RichTextEditor
+                content={content.json}
+                replacement={replacement}
+                onChange={edit(setContent)}
+                siteId={site.id}
+                onError={setError}
+                editable={!locked}
+              />
+            </div>
           </div>
         </main>
 
@@ -546,6 +623,13 @@ export function PostEditor({
             </button>
           </div>
           <fieldset disabled={locked} className="min-w-0 divide-y divide-zinc-200">
+            <SeoScoreSection
+              result={seoScore}
+              otherLanguage={otherVersion ? t.common.locales[otherVersion.locale] : ""}
+              onGo={goToCheck}
+              versionHref={otherVersion ? `/admin/posts/${post.id}?locale=${otherVersion.locale}` : null}
+              onLeave={confirmLeave}
+            />
             <Section title={t.editor.panel.outline} hint={t.editor.panel.outlineHint}>
               {outline.length > 0 ? (
                 <ol className="space-y-1 border-l-2 border-line pl-3 text-sm">
@@ -564,7 +648,7 @@ export function PostEditor({
               ) : (
                 <p className="rounded-lg border border-dashed border-zinc-300 bg-white px-3 py-2.5 text-xs leading-relaxed text-zinc-500">
                   {outlineEmptyBefore}
-                  <strong className="font-semibold">H2</strong>
+                  <strong className="font-semibold">{t.editor.blocks.h2.label}</strong>
                   {outlineEmptyAfter}
                 </p>
               )}
@@ -590,6 +674,18 @@ export function PostEditor({
                   />
                 </Field>
               )}
+              {canPublish && status !== "scheduled" && (
+                <Field label={t.editor.panel.publishedAt} hint={t.editor.panel.publishedAtHint}>
+                  <input
+                    id="field-published-at"
+                    type="datetime-local"
+                    value={publishedAt}
+                    onChange={(e) => edit(setPublishedAt)(e.target.value)}
+                    className={inputClass}
+                    suppressHydrationWarning
+                  />
+                </Field>
+              )}
               {!canPublish && (
                 <p className="text-xs leading-relaxed text-zinc-500">
                   {fmt(t.editor.panel.writerHint, { status: t.common.status.in_review })}
@@ -609,6 +705,7 @@ export function PostEditor({
             <Section title={t.editor.panel.link}>
               <Field label={t.editor.panel.slug}>
                 <input
+                  id="field-slug"
                   value={effectiveSlug}
                   onChange={(e) => {
                     setSlugTouched(true);
@@ -623,7 +720,7 @@ export function PostEditor({
 
             <Section title={t.editor.panel.taxonomy} hint={t.editor.panel.taxonomyHint}>
               <Field label={t.editor.panel.category}>
-                <select value={categoryId} onChange={(e) => edit(setCategoryId)(e.target.value)} className={inputClass}>
+                <select id="field-category" value={categoryId} onChange={(e) => edit(setCategoryId)(e.target.value)} className={inputClass}>
                   <option value="">{t.editor.canvas.uncategorized}</option>
                   {categories.map((c) => (
                     <option key={c.id} value={c.id}>
@@ -643,8 +740,6 @@ export function PostEditor({
             <SeoSection
               title={title}
               excerpt={excerpt}
-              html={content.html}
-              slug={effectiveSlug}
               publicUrl={publicUrl}
               metaTitle={metaTitle}
               metaDescription={metaDescription}
@@ -709,6 +804,8 @@ export function PostEditor({
         <AiDialog
           postId={post.id}
           locale={locale}
+          site={site}
+          categories={categories}
           source={otherVersion ? { locale: otherVersion.locale, exists: !!otherVersion.status } : null}
           enabled={aiEnabled}
           hasContent={!!title.trim() || countWords(content.html) > 0}
@@ -738,6 +835,7 @@ export function PostEditor({
           siteName={site.name}
           language={t.common.locales[locale]}
           url={publicUrl}
+          seoScore={seoScore.score}
           otherUnpublished={otherUnpublished.map((tab) =>
             fmt(t.editor.publishing.otherUnpublished, {
               language: t.common.locales[tab.locale],
@@ -811,6 +909,7 @@ function PublishDialog({
   language,
   url,
   otherUnpublished,
+  seoScore,
   initialWhen,
   onCancel,
   onConfirm,
@@ -819,6 +918,7 @@ function PublishDialog({
   language: string;
   url: string;
   otherUnpublished: string[];
+  seoScore: number;
   initialWhen: string;
   onCancel: () => void;
   /** `when` is a datetime-local value when scheduling, null to publish now. */
@@ -918,6 +1018,13 @@ function PublishDialog({
           <p className="mt-0.5 break-all text-zinc-800">{url}</p>
         </div>
 
+        {seoScore < SCORE_THRESHOLDS.ok && (
+          <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            {fmt(t.editor.score.publishWarning, { score: seoScore })}
+          </p>
+        )}
+
         {otherUnpublished.map((text) => (
           <p key={text} className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -939,11 +1046,20 @@ function PublishDialog({
 }
 
 const DRAFT_LENGTHS: DraftLength[] = ["short", "medium", "long"];
+const DRAFT_WORDS: Record<DraftLength, number> = { short: 600, medium: 1200, long: 2000 };
 
-/** Drafts this version from a topic, or translates it from the other language, into the editor. */
+type AiArticle = ArticleFields & { categoryId: string | null };
+
+/**
+ * Drafts this version from a topic, or translates it from the other language, into the editor.
+ * Two engines: the person's own Claude (copy a prompt, paste the answer back; no API key needed)
+ * or the CMS's built-in AI (ANTHROPIC_API_KEY).
+ */
 function AiDialog({
   postId,
   locale,
+  site,
+  categories,
   source,
   enabled,
   hasContent,
@@ -953,6 +1069,8 @@ function AiDialog({
 }: {
   postId: string;
   locale: Locale;
+  site: { id: string; name: string; baseUrl: string };
+  categories: { id: string; name: string }[];
   /** The other language: where a translation comes from. */
   source: { locale: Locale; exists: boolean } | null;
   enabled: boolean;
@@ -960,21 +1078,26 @@ function AiDialog({
   initialKeyword: string;
   onClose: () => void;
   /** `from` is set when the article was translated from that locale. */
-  onDone: (article: ArticleFields & { categoryId: string | null }, from: Locale | null) => void;
+  onDone: (article: AiArticle, from: Locale | null) => void;
 }) {
   const { t } = useI18n();
   const a = t.editor.ai;
   const titleId = useId();
   const canTranslate = !!source?.exists;
+  const [engine, setEngine] = useState<"own" | "builtin">(enabled ? "builtin" : "own");
   // An empty version with the other language written is most likely waiting to be translated.
   const [mode, setMode] = useState<"draft" | "translate">(canTranslate && !hasContent ? "translate" : "draft");
   const [topic, setTopic] = useState("");
   const [keyPoints, setKeyPoints] = useState("");
   const [keyword, setKeyword] = useState(initialKeyword);
   const [length, setLength] = useState<DraftLength>("medium");
-  const [error, setError] = useState<string | null>(enabled ? null : a.errors.not_configured);
+  const [error, setError] = useState<string | null>(null);
   const [running, startRunning] = useTransition();
   const [seconds, setSeconds] = useState(0);
+  // Own-Claude flow: the prompt that was copied, and the answer pasted back.
+  const [prompt, setPrompt] = useState("");
+  const [copied, setCopied] = useState<"yes" | "manual" | null>(null);
+  const [pasted, setPasted] = useState("");
 
   useEffect(() => {
     if (!running) return;
@@ -990,6 +1113,8 @@ function AiDialog({
   }, [onClose, running]);
 
   const language = (l: Locale) => t.common.locales[l];
+  const from = mode === "translate" && source ? source.locale : null;
+  const parsed = engine === "own" && pasted.trim() ? parsePastedArticle(pasted, categories) : null;
   const options = [
     { mode: "draft" as const, icon: PenLine, label: a.draft, hint: a.draftHint, disabled: false },
     {
@@ -1001,31 +1126,82 @@ function AiDialog({
     },
   ];
 
-  function run() {
+  function runBuiltin() {
     setError(null);
     setSeconds(0);
     startRunning(async () => {
-      const result =
-        mode === "translate" && source
-          ? await aiTranslate({ postId, from: source.locale, to: locale })
-          : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length });
+      const result = from
+        ? await aiTranslate({ postId, from, to: locale })
+        : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length });
       if (!result.ok) setError(result.error);
-      else onDone(result.article, mode === "translate" && source ? source.locale : null);
+      else onDone(result.article, from);
     });
   }
 
+  /** Builds the prompt for the person's own Claude and puts it on the clipboard. */
+  function copyPrompt() {
+    setError(null);
+    if (!from && topic.trim().length < 3) {
+      setError(a.errors.topic);
+      return;
+    }
+    startRunning(async () => {
+      let text: string;
+      if (from) {
+        const result = await aiSourceArticle({ postId, from });
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        text = translatePrompt({ site, from, to: locale, source: result.source });
+      } else {
+        text = draftPrompt({ site, locale, topic, keyPoints, focusKeyword: keyword, words: DRAFT_WORDS[length], categories });
+      }
+      setPrompt(text);
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopied("yes");
+      } catch {
+        // No clipboard access (e.g. a plain-http address): the prompt is shown below to copy by hand.
+        setCopied("manual");
+      }
+    });
+  }
+
+  function fillFromPaste() {
+    if (!parsed?.ok) return;
+    const p = parsed.article;
+    onDone(
+      {
+        title: p.title,
+        excerpt: p.excerpt,
+        metaTitle: p.metaTitle,
+        metaDescription: p.metaDescription,
+        focusKeyword: p.focusKeyword,
+        html: p.html,
+        // Articles share one category across languages, so a translation leaves it alone.
+        categoryId: from ? null : p.categoryId,
+      },
+      from,
+    );
+  }
+
+  const stepClass = "flex items-center gap-2 text-sm font-semibold text-ink";
+  const stepNumber = "flex size-5 items-center justify-center rounded-full bg-brand text-[11px] font-bold text-white";
+
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/30 px-4 py-[10vh]" onMouseDown={() => !running && onClose()}>
+    <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-ink/30 px-4 py-[8vh]" onMouseDown={() => !running && onClose()}>
       <form
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          run();
+          if (engine === "own") fillFromPaste();
+          else runBuiltin();
         }}
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="w-full max-w-lg rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
+        className="w-full max-w-xl rounded-2xl border border-zinc-200 bg-white p-6 shadow-2xl"
       >
         <div className="flex items-start justify-between gap-4">
           <div>
@@ -1046,7 +1222,31 @@ function AiDialog({
           </button>
         </div>
 
-        <fieldset disabled={running} className="mt-5 grid grid-cols-2 gap-2">
+        {/* Which AI writes */}
+        <div className="mt-5 flex rounded-lg bg-zinc-100 p-1" role="radiogroup" aria-label={a.engine}>
+          {(["own", "builtin"] as const).map((e) => (
+            <button
+              key={e}
+              type="button"
+              role="radio"
+              aria-checked={engine === e}
+              disabled={running}
+              onClick={() => {
+                setEngine(e);
+                setError(null);
+              }}
+              className={cn(
+                "flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition",
+                engine === e ? "bg-white text-ink shadow-sm" : "text-zinc-500 hover:text-zinc-800",
+              )}
+            >
+              {e === "own" ? a.engineOwn : a.engineBuiltin}
+            </button>
+          ))}
+        </div>
+        <p className="mt-2 text-xs text-zinc-500">{engine === "own" ? a.engineOwnHint : enabled ? a.engineBuiltinHint : a.errors.not_configured}</p>
+
+        <fieldset disabled={running} className="mt-4 grid grid-cols-2 gap-2">
           {options.map((option) => (
             <label
               key={option.mode}
@@ -1061,7 +1261,11 @@ function AiDialog({
                 name="aiMode"
                 checked={mode === option.mode}
                 disabled={option.disabled}
-                onChange={() => setMode(option.mode)}
+                onChange={() => {
+                  setMode(option.mode);
+                  setPrompt("");
+                  setCopied(null);
+                }}
                 className="sr-only"
               />
               <span className="flex items-center gap-2 font-semibold text-ink">
@@ -1074,12 +1278,13 @@ function AiDialog({
         </fieldset>
 
         <fieldset disabled={running} className="mt-4 flex flex-col gap-3">
+          {engine === "own" && <p className={stepClass}><span className={stepNumber}>1</span>{a.step1}</p>}
           {mode === "draft" ? (
             <>
               <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
                 {a.topic}
                 <textarea
-                  required
+                  required={engine === "builtin"}
                   minLength={3}
                   rows={2}
                   value={topic}
@@ -1118,9 +1323,75 @@ function AiDialog({
           ) : (
             source && (
               <p className="rounded-lg bg-zinc-50 px-3 py-2.5 text-sm text-zinc-600">
-                {fmt(a.translateNote, { from: language(source.locale), to: language(locale) })}
+                {fmt(engine === "own" ? a.translateNoteOwn : a.translateNote, { from: language(source.locale), to: language(locale) })}
               </p>
             )
+          )}
+
+          {engine === "own" && (
+            <>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={copyPrompt}
+                  className="inline-flex items-center gap-2 rounded-lg border border-brand px-3.5 py-2 text-sm font-semibold text-brand hover:bg-brand-soft"
+                >
+                  {running ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />}
+                  {a.copyPrompt}
+                </button>
+                {copied === "yes" && (
+                  <span role="status" className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
+                    <Check className="size-3.5" />
+                    {a.copied}
+                  </span>
+                )}
+              </div>
+              {prompt && (
+                <details open={copied === "manual"} className="rounded-lg border border-zinc-200 bg-zinc-50 text-xs">
+                  <summary className="cursor-pointer px-3 py-2 font-medium text-zinc-600">
+                    {copied === "manual" ? a.copyFailed : a.showPrompt}
+                  </summary>
+                  <textarea
+                    readOnly
+                    value={prompt}
+                    rows={6}
+                    onFocus={(e) => e.currentTarget.select()}
+                    aria-label={a.showPrompt}
+                    className="block w-full resize-y border-t border-zinc-200 bg-white p-3 font-mono text-[11px] leading-relaxed text-zinc-700 outline-none"
+                  />
+                </details>
+              )}
+
+              <p className={cn(stepClass, "mt-2")}><span className={stepNumber}>2</span>{a.step2}</p>
+              <textarea
+                rows={5}
+                value={pasted}
+                onChange={(e) => setPasted(e.target.value)}
+                placeholder={a.pastePlaceholder}
+                aria-label={a.step2}
+                className={cn(inputClass, "resize-y font-mono text-xs")}
+              />
+              <p className="-mt-1 text-xs text-zinc-500">{a.step2Hint}</p>
+              {parsed &&
+                (parsed.ok ? (
+                  <p role="status" className="flex items-start gap-2 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+                    <CircleCheck className="mt-0.5 size-4 shrink-0" />
+                    <span>
+                      {fmt(a.detected, { title: parsed.article.title, n: parsed.article.sections })}
+                      {!from &&
+                        parsed.article.categoryName &&
+                        (parsed.article.categoryId
+                          ? fmt(a.detectedCategory, { name: parsed.article.categoryName })
+                          : fmt(a.categoryUnknown, { name: parsed.article.categoryName }))}
+                    </span>
+                  </p>
+                ) : (
+                  <p role="alert" className="flex items-start gap-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
+                    <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+                    {a.pasteErrors[parsed.error]}
+                  </p>
+                ))}
+            </>
           )}
         </fieldset>
 
@@ -1136,7 +1407,7 @@ function AiDialog({
             {error}
           </p>
         )}
-        {running && (
+        {running && engine === "builtin" && (
           <p role="status" className="mt-3 flex items-center gap-2 text-sm text-zinc-600">
             <Loader2 className="size-4 animate-spin text-brand" />
             {fmt(a.working, { seconds })}
@@ -1152,10 +1423,17 @@ function AiDialog({
           >
             {t.common.cancel}
           </button>
-          <button type="submit" disabled={running || !enabled || (mode === "translate" && !canTranslate)} className={primaryButton}>
-            {running ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
-            {mode === "translate" && source ? fmt(a.translate, { language: language(source.locale) }) : a.draft}
-          </button>
+          {engine === "own" ? (
+            <button type="submit" disabled={running || !parsed?.ok} className={primaryButton}>
+              <Check className="size-4" />
+              {a.fill}
+            </button>
+          ) : (
+            <button type="submit" disabled={running || !enabled || (mode === "translate" && !canTranslate)} className={primaryButton}>
+              {running ? <Loader2 className="size-4 animate-spin" /> : <Sparkles className="size-4" />}
+              {mode === "translate" && source ? fmt(a.translate, { language: language(source.locale) }) : a.draft}
+            </button>
+          )}
         </div>
       </form>
     </div>
@@ -1165,9 +1443,9 @@ function AiDialog({
 const inputClass =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/20 disabled:bg-zinc-100";
 
-function Section({ title, hint, children }: { title: string; hint?: string; children: React.ReactNode }) {
+function Section({ id, title, hint, children }: { id?: string; title: string; hint?: string; children: React.ReactNode }) {
   return (
-    <section className="flex flex-col gap-4 px-5 py-5">
+    <section id={id} className="flex scroll-mt-4 flex-col gap-4 px-5 py-5">
       <div>
         <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">{title}</h2>
         {hint && <p className="mt-1 text-xs text-zinc-400">{hint}</p>}
@@ -1352,15 +1630,155 @@ function CoverImage({
   );
 }
 
-function includes(text: string, keyword: string) {
-  return text.toLowerCase().includes(keyword.trim().toLowerCase());
+const LEVEL_COLOR = { good: "text-emerald-600", ok: "text-amber-500", weak: "text-red-500" } as const;
+const BADGE_COLOR = {
+  good: "bg-emerald-50 text-emerald-700 ring-emerald-200",
+  ok: "bg-amber-50 text-amber-700 ring-amber-200",
+  weak: "bg-red-50 text-red-600 ring-red-200",
+} as const;
+
+/** Where each check is fixed; content checks go to the article body. */
+const CHECK_TARGET: Partial<Record<CheckId, string>> = {
+  seoTitleLength: "field-meta-title",
+  keywordInTitle: "field-meta-title",
+  metaDescriptionLength: "field-meta-description",
+  keywordInDescription: "field-meta-description",
+  keywordSet: "field-keyword",
+  keywordInSlug: "field-slug",
+  slugLength: "field-slug",
+  excerpt: "field-excerpt",
+  category: "field-category",
+  cover: "field-cover",
+  keywordInIntro: "field-content",
+  keywordInHeading: "field-content",
+  wordCount: "field-content",
+  sections: "field-content",
+  shortParagraphs: "field-content",
+  internalLinks: "field-content",
+  imagesAlt: "field-content",
+};
+
+/** Circular gauge of the SEO score. */
+function ScoreRing({ score, level }: { score: number; level: ScoreResult["level"] }) {
+  const r = 24;
+  const length = 2 * Math.PI * r;
+  return (
+    <div className={cn("relative size-16 shrink-0", LEVEL_COLOR[level])}>
+      <svg viewBox="0 0 56 56" className="size-16 -rotate-90" aria-hidden="true">
+        <circle cx="28" cy="28" r={r} fill="none" stroke="currentColor" strokeOpacity={0.15} strokeWidth="6" />
+        <circle cx="28" cy="28" r={r} fill="none" stroke="currentColor" strokeWidth="6" strokeLinecap="round" strokeDasharray={`${(score / 100) * length} ${length}`} />
+      </svg>
+      <span className="absolute inset-0 flex items-center justify-center text-lg font-bold text-ink">{score}</span>
+    </div>
+  );
+}
+
+/** The SEO score with what to fix first (the checks worth the most points lead). */
+function SeoScoreSection({
+  result,
+  otherLanguage,
+  onGo,
+  versionHref,
+  onLeave,
+}: {
+  result: ScoreResult;
+  otherLanguage: string;
+  onGo: (id: CheckId) => void;
+  /** The other language's editor, for the translation check. */
+  versionHref: string | null;
+  onLeave: (event: React.MouseEvent) => void;
+}) {
+  const { t } = useI18n();
+  const s = t.editor.score;
+  const [showAll, setShowAll] = useState(false);
+  const vars = (c: ScoreCheck) => ({ ...c.vars, language: otherLanguage });
+  const missing = (c: ScoreCheck) => c.weight * (1 - c.earned);
+  const todo = result.checks.filter((c) => c.earned < 1).sort((a, b) => missing(b) - missing(a));
+  const done = result.checks.filter((c) => c.earned === 1);
+  const shown = showAll ? todo : todo.slice(0, 3);
+  const action = "mt-1 inline-flex items-center gap-1 font-semibold text-brand hover:underline";
+  const groups = (["seo", "content", "trust"] as const).map((g) => {
+    const list = result.checks.filter((c) => c.group === g);
+    return { g, earned: Math.round(list.reduce((n, c) => n + c.weight * c.earned, 0)), total: list.reduce((n, c) => n + c.weight, 0) };
+  });
+
+  return (
+    <Section id="seo-score" title={s.title} hint={s.hint}>
+      <div className="flex items-center gap-4" data-seo-score={result.score}>
+        <ScoreRing score={result.score} level={result.level} />
+        <div className="min-w-0">
+          <p className={cn("text-sm font-semibold", LEVEL_COLOR[result.level])}>{s.levels[result.level]}</p>
+          <ul className="mt-1 flex flex-col gap-0.5 text-xs text-zinc-500">
+            {groups.map(({ g, earned, total }) => (
+              <li key={g}>
+                {s.groups[g]}: <span className="font-medium text-zinc-700">{earned}</span>/{total}
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+      {todo.length > 0 && (
+        <div>
+          <p className="text-xs font-semibold text-zinc-600">{fmt(s.toFix, { n: todo.length })}</p>
+          <ul className="mt-2 flex flex-col gap-3">
+            {shown.map((c) => (
+              <li key={c.id} className="flex gap-2 text-xs" data-check={c.id}>
+                {c.earned > 0 ? (
+                  <CircleDashed className="mt-0.5 size-3.5 shrink-0 text-amber-500" />
+                ) : (
+                  <CircleX className="mt-0.5 size-3.5 shrink-0 text-red-400" />
+                )}
+                <div className="min-w-0">
+                  <p className="font-medium text-zinc-800">
+                    {fmt(s.checks[c.id].label, vars(c))} <span className="font-normal text-zinc-400">+{Math.round(missing(c))}</span>
+                  </p>
+                  <p className="mt-0.5 leading-relaxed text-zinc-500">{fmt(s.checks[c.id].fix, vars(c))}</p>
+                  {c.id === "author" ? (
+                    <a href="/admin/account" target="_blank" rel="noopener" className={action}>
+                      {s.openAccount} <ExternalLink className="size-3" />
+                    </a>
+                  ) : c.id === "translation" ? (
+                    versionHref && (
+                      <Link href={versionHref} onClick={onLeave} className={action}>
+                        {fmt(s.openVersion, { language: otherLanguage })} <ArrowRight className="size-3" />
+                      </Link>
+                    )
+                  ) : (
+                    <button type="button" onClick={() => onGo(c.id)} className={action}>
+                      {s.fixIt} <ArrowRight className="size-3" />
+                    </button>
+                  )}
+                </div>
+              </li>
+            ))}
+          </ul>
+          {todo.length > 3 && (
+            <button type="button" onClick={() => setShowAll((v) => !v)} className="mt-3 text-xs font-semibold text-zinc-600 hover:text-zinc-900">
+              {showAll ? s.showLess : fmt(s.showAll, { n: todo.length })}
+            </button>
+          )}
+        </div>
+      )}
+      {done.length > 0 && (
+        <details className="text-xs">
+          <summary className="cursor-pointer font-semibold text-zinc-600">{fmt(s.done, { n: done.length })}</summary>
+          <ul className="mt-2 flex flex-col gap-1.5">
+            {done.map((c) => (
+              <li key={c.id} className="flex items-center gap-2 text-zinc-600">
+                <CircleCheck className="size-3.5 shrink-0 text-emerald-600" />
+                {fmt(s.checks[c.id].label, vars(c))}
+              </li>
+            ))}
+          </ul>
+        </details>
+      )}
+    </Section>
+  );
 }
 
 function SeoSection(props: {
   title: string;
   excerpt: string;
-  html: string;
-  slug: string;
   publicUrl: string;
   metaTitle: string;
   metaDescription: string;
@@ -1375,18 +1793,6 @@ function SeoSection(props: {
   const seo = t.editor.seo;
   const seoTitle = props.metaTitle || props.title;
   const seoDescription = props.metaDescription || props.excerpt;
-  const keyword = props.focusKeyword.trim();
-  const checks = keyword
-    ? [
-        { ok: includes(seoTitle, keyword), label: seo.checkTitle },
-        { ok: includes(seoDescription, keyword), label: seo.checkDescription },
-        { ok: props.slug.includes(slugify(keyword)), label: seo.checkSlug },
-        { ok: includes(props.html, keyword), label: seo.checkContent },
-        { ok: seoTitle.length > 0 && seoTitle.length <= 60, label: seo.checkTitleLength },
-        { ok: seoDescription.length >= 50 && seoDescription.length <= 160, label: seo.checkDescriptionLength },
-      ]
-    : [];
-  const passed = checks.filter((c) => c.ok).length;
 
   return (
     <Section title={seo.title}>
@@ -1400,6 +1806,7 @@ function SeoSection(props: {
       </div>
       <Field label={seo.metaTitle} hint={<Counter value={seoTitle} max={60} />}>
         <input
+          id="field-meta-title"
           value={props.metaTitle}
           onChange={(e) => props.onMetaTitle(e.target.value)}
           placeholder={props.title || seo.metaTitlePlaceholder}
@@ -1408,6 +1815,7 @@ function SeoSection(props: {
       </Field>
       <Field label={seo.metaDescription} hint={<Counter value={seoDescription} max={160} />}>
         <textarea
+          id="field-meta-description"
           value={props.metaDescription}
           onChange={(e) => props.onMetaDescription(e.target.value)}
           placeholder={props.excerpt || seo.metaDescriptionPlaceholder}
@@ -1417,30 +1825,13 @@ function SeoSection(props: {
       </Field>
       <Field label={seo.focusKeyword}>
         <input
+          id="field-keyword"
           value={props.focusKeyword}
           onChange={(e) => props.onFocusKeyword(e.target.value)}
           placeholder={seo.focusKeywordPlaceholder}
           className={inputClass}
         />
       </Field>
-      {checks.length > 0 && (
-        <div className="rounded-lg border border-zinc-200 bg-white p-3">
-          <p className="mb-2 flex items-center justify-between text-xs font-medium text-zinc-700">
-            {seo.checks}
-            <span className={cn(passed === checks.length ? "text-emerald-600" : "text-amber-600")}>
-              {passed}/{checks.length}
-            </span>
-          </p>
-          <ul className="flex flex-col gap-1.5 text-xs">
-            {checks.map((c) => (
-              <li key={c.label} className={cn("flex items-center gap-2", c.ok ? "text-zinc-700" : "text-zinc-400")}>
-                {c.ok ? <Check className="size-3.5 text-emerald-600" /> : <X className="size-3.5 text-zinc-300" />}
-                {c.label}
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
       <Toggle
         checked={props.noindex}
         onChange={props.onNoindex}

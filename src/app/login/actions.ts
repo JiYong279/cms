@@ -26,7 +26,7 @@ const MAX_PER_IP = 20;
 
 async function clientIp() {
   const h = await headers();
-  // Hosting platforms (Vercel, most proxies) set x-real-ip to the address that actually connected.
+  // Reverse proxies (such as the server's edge proxy) set x-real-ip to the address that actually connected.
   return h.get("x-real-ip") || h.get("x-forwarded-for")?.split(",")[0]?.trim() || "unknown";
 }
 

@@ -186,3 +186,41 @@ export async function resetPassword(_prev: FormState, formData: FormData): Promi
   });
   return { success: t.users.success.passwordReset };
 }
+
+/** Disables an account (signed out everywhere, cannot sign in) or enables it again. */
+export async function setUserActive(id: string, active: boolean): Promise<FormState> {
+  const t = await getT();
+  const manager = await requireManager();
+  if (!manager) return { error: t.users.noAccess.edit };
+  if (!z.uuid().safeParse(id).success) return { error: t.users.errors.notFound };
+  if (id === manager.id) return { error: t.users.errors.selfChange };
+
+  const db = await getDb();
+  const [target] = await db.select().from(schema.users).where(eq(schema.users.id, id)).limit(1);
+  if (!target) return { error: t.users.errors.notFound };
+  if (target.active === active) return {};
+
+  // Never leave the CMS without an active admin.
+  if (!active && target.role === "admin") {
+    const [{ value: otherAdmins }] = await db
+      .select({ value: count() })
+      .from(schema.users)
+      .where(and(eq(schema.users.role, "admin"), eq(schema.users.active, true), ne(schema.users.id, target.id)));
+    if (otherAdmins === 0) return { error: t.users.errors.lastAdmin };
+  }
+
+  await db.update(schema.users).set({ active }).where(eq(schema.users.id, id));
+  if (!active) await revokeSessions(id);
+
+  const meta = { name: target.name, changes: [{ type: active ? "unlock" : "lock" }] as ActivityChange[] };
+  await logActivity({
+    userId: manager.id,
+    action: "user.updated",
+    entityType: "user",
+    entityId: id,
+    summary: viSummary("user.updated", meta),
+    meta,
+  });
+  revalidatePath("/admin/users");
+  return { success: fmt(active ? t.users.list.enabledDone : t.users.list.disabledDone, { name: target.name }) };
+}
