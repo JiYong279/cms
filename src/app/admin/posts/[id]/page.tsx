@@ -1,13 +1,13 @@
 import { notFound } from "next/navigation";
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { Locale } from "@/db/schema";
 import { NoAccess } from "@/components/no-access";
-import { getT } from "@/i18n/server";
+import { getT, getTimeZone } from "@/i18n/server";
 import { describeActivity } from "@/lib/activity-text";
 import { requireUser } from "@/lib/auth";
-import { can, canDeletePost, canEditPost, canEditTranslation } from "@/lib/permissions";
+import { ROLES, can, canDeletePost, canEditPost, canEditTranslation } from "@/lib/permissions";
 import { aiConfigured } from "@/lib/ai";
 import { LOCALES, isStale, viewOrigin } from "@/lib/posts";
 import { PostEditor, type LocaleTab } from "./post-editor";
@@ -34,7 +34,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
   if (!post) notFound();
   if (!canEditPost(user, post)) return <NoAccess message={t.editor.noAccess} />;
 
-  const { locale: localeParam } = await searchParams;
+  const { locale: localeParam, ai, engine } = await searchParams;
   const locale: Locale = LOCALES.find((l) => l === localeParam) ?? post.site.defaultLocale;
   const translation = post.translations.find((tr) => tr.locale === locale) ?? null;
   // Counted by the SEO score: articles by an author with a public profile show a real byline.
@@ -64,6 +64,16 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
     .where(and(eq(schema.activityLog.entityType, "post"), eq(schema.activityLog.entityId, post.id)))
     .orderBy(desc(schema.activityLog.at))
     .limit(10);
+
+  // Who may look after the article: active editors and admins, and whoever looks after it now.
+  const assignees = (
+    await db
+      .select({ id: schema.users.id, name: schema.users.name, role: schema.users.role, active: schema.users.active })
+      .from(schema.users)
+      .where(inArray(schema.users.role, ROLES.filter((r) => can(r, "posts.editAny"))))
+  )
+    .filter((u) => u.active || u.id === post.assigneeId)
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   const categories = await db
     .select()
@@ -97,11 +107,20 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
         blogPath: post.site.blogPaths[locale],
       }}
       categories={categories.map((c) => ({ id: c.id, name: c.names[locale] ?? c.names.vi ?? "" }))}
+      planning={{
+        plannedFor: post.plannedFor,
+        assigneeId: post.assigneeId,
+        assignees: assignees.map((a) => ({ id: a.id, name: a.name })),
+        canAssign: can(user.role, "posts.assign"),
+      }}
       canPublish={can(user.role, "posts.publish")}
       locked={!canEditTranslation(user, translation?.status ?? null)}
       canDelete={canDeletePost(user, post, post.translations.map((tr) => tr.status))}
       aiEnabled={aiConfigured()}
+      openAi={ai === "translate" ? "translate" : null}
+      aiEngine={engine === "own" || engine === "builtin" ? engine : null}
       authorHasProfile={authorHasProfile}
+      timeZone={await getTimeZone()}
       trashed={post.deletedAt ? { at: post.deletedAt, by: trashedBy ?? null } : null}
       history={history.map((h) => ({
         at: h.at,

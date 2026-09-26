@@ -30,6 +30,7 @@ import {
   X,
 } from "lucide-react";
 import { ConfirmPopover } from "@/components/confirm-popover";
+import { useReturnTo } from "@/components/return-to";
 import type { Locale, PostStatus, PostTranslation } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
@@ -37,11 +38,15 @@ import type { ArticleFields, DraftLength } from "@/lib/ai";
 import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste";
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
+import { FIX_FOR, fieldsFor, type FixField } from "@/lib/seo-fix";
 import { imageFiles, uploadImage } from "@/lib/upload-client";
 import { cn } from "@/lib/utils";
 import { markTranslationSynced, restorePosts, savePost, trashPostAndLeave } from "../actions";
 import { aiDraft, aiSourceArticle, aiTranslate } from "../ai-actions";
 import { RichTextEditor } from "./rich-text-editor";
+import { Field, Section, inputClass } from "./editor/panel";
+import { PlanningFields } from "./editor/planning-fields";
+import { SeoFixDialog } from "./editor/seo-fix-dialog";
 
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
 
@@ -55,6 +60,8 @@ type Props = {
   /** `viewOrigin` is where to open the article to look at it (see viewOrigin in lib/posts). */
   site: { id: string; name: string; baseUrl: string; viewOrigin: string; blogPath: string };
   categories: { id: string; name: string }[];
+  /** The editorial calendar's plan for the article (saved on its own, see PlanningFields). */
+  planning: { plannedFor: string | null; assigneeId: string | null; assignees: { id: string; name: string }[]; canAssign: boolean };
   canPublish: boolean;
   /** This language is live and the user may not change live articles. */
   locked: boolean;
@@ -65,8 +72,13 @@ type Props = {
   history: { at: Date; who: string; summary: string }[];
   /** ANTHROPIC_API_KEY is set, so the AI assistant can run. */
   aiEnabled: boolean;
+  /** Opened from the other language's "translate into this one": start with the AI dialog translating. */
+  openAi: "translate" | null;
+  aiEngine: "own" | "builtin" | null;
   /** The article's author has a public profile in this language (see the Account page). */
   authorHasProfile: boolean;
+  /** The viewer's zone (getTimeZone), so dates read the same when rendered on the server and in the browser. */
+  timeZone: string;
 };
 
 const PLACEHOLDER_SLUG = /^bai-viet-[0-9a-f]{8}$/;
@@ -77,8 +89,8 @@ function toLocalInput(date: Date | null) {
   return local.toISOString().slice(0, 16);
 }
 
-function formatTime(date: Date, dateLocale: string) {
-  return new Intl.DateTimeFormat(dateLocale, { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit" }).format(
+function formatTime(date: Date, dateLocale: string, timeZone: string) {
+  return new Intl.DateTimeFormat(dateLocale, { hour: "2-digit", minute: "2-digit", day: "2-digit", month: "2-digit", timeZone }).format(
     date,
   );
 }
@@ -91,11 +103,12 @@ function countWords(html: string) {
  * Date and reading time as the website prints them: in the article's language (`locale`), not the
  * interface language, so the header preview matches the published page.
  */
-function formatDay(date: Date, locale: Locale) {
+function formatDay(date: Date, locale: Locale, timeZone: string) {
   return new Intl.DateTimeFormat(locale === "vi" ? "vi-VN" : "en-US", {
     day: "2-digit",
     month: locale === "vi" ? "2-digit" : "short",
     year: "numeric",
+    timeZone,
   }).format(date);
 }
 
@@ -119,6 +132,7 @@ export function PostEditor({
   staleSource,
   site,
   categories,
+  planning,
   canPublish,
   locked: lockedByRole,
   canDelete,
@@ -126,10 +140,13 @@ export function PostEditor({
   history,
   aiEnabled,
   authorHasProfile,
+  timeZone,
+  openAi,
+  aiEngine,
 }: Props) {
   const router = useRouter();
   const { t } = useI18n();
-  const time = (date: Date) => formatTime(date, t.common.dateLocale);
+  const time = (date: Date) => formatTime(date, t.common.dateLocale, timeZone);
   const locked = lockedByRole || !!trashed;
   const [title, setTitle] = useState(translation?.title ?? "");
   const [excerpt, setExcerpt] = useState(translation?.excerpt ?? "");
@@ -156,7 +173,13 @@ export function PostEditor({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; href?: string } | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(openAi === "translate");
+  // Where to go once the save in progress succeeds (translating this version into the other language).
+  const afterSave = useRef<string | null>(null);
+  // Back to the list, calendar or log (with its filters) the article was opened from.
+  const backHref = useReturnTo("/admin");
+  // "Fix with AI" from the SEO score: the fields it opens with, while open.
+  const [seoFix, setSeoFix] = useState<FixField[] | null>(null);
   const [replacement, setReplacement] = useState<{ html: string; version: number } | null>(null);
   // The locale the current content was machine-translated from, until it is saved.
   const [translatedFrom, setTranslatedFrom] = useState<Locale | null>(null);
@@ -205,6 +228,7 @@ export function PostEditor({
         translatedFrom,
       });
       if (!result.ok) {
+        afterSave.current = null;
         setError(result.error);
         return;
       }
@@ -213,6 +237,11 @@ export function PostEditor({
       setSavedAt(new Date(result.savedAt));
       setDirty(false);
       setTranslatedFrom(null);
+      if (afterSave.current) {
+        router.push(afterSave.current);
+        afterSave.current = null;
+        return;
+      }
       if (!next) return;
       setStatus(nextStatus);
       setScheduledAt(nextSchedule);
@@ -220,13 +249,14 @@ export function PostEditor({
       if (nextStatus === "published") {
         setNotice({ text: fmt(p.published, { site: site.name }), href: `${site.viewOrigin}${site.blogPath}/${result.slug}` });
       } else if (nextStatus === "scheduled") {
-        setNotice({ text: fmt(p.scheduled, { time: formatTime(new Date(nextSchedule), t.common.dateLocale) }) });
+        setNotice({ text: fmt(p.scheduled, { time: time(new Date(nextSchedule)) }) });
       } else {
         setNotice({ text: p.submitted });
       }
     });
   }, [
     t,
+    router,
     site.name,
     site.viewOrigin,
     site.blogPath,
@@ -269,6 +299,27 @@ export function PostEditor({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
+
+  // The ?ai= and ?engine= that opened the dialog have done their job; a reload should not reopen it.
+  useEffect(() => {
+    if (!openAi) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("ai");
+    url.searchParams.delete("engine");
+    window.history.replaceState(window.history.state, "", url);
+  }, [openAi]);
+
+  /** Translates this version into the other language: saves it first when needed, then opens that one. */
+  function translateOut(target: Locale, engine: "own" | "builtin") {
+    const url = `/admin/posts/${post.id}?locale=${target}&ai=translate&engine=${engine}`;
+    setAiOpen(false);
+    if (dirty) {
+      afterSave.current = url;
+      save();
+    } else {
+      router.push(url);
+    }
+  }
 
   function confirmLeave(event: React.MouseEvent) {
     if (dirty && !window.confirm(t.editor.confirmLeave)) event.preventDefault();
@@ -349,7 +400,7 @@ export function PostEditor({
       {/* ---------- Top bar ---------- */}
       <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 sm:px-4">
         <Link
-          href="/admin"
+          href={backHref}
           onClick={confirmLeave}
           title={t.editor.header.back}
           className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
@@ -553,7 +604,7 @@ export function PostEditor({
             {/* Same order and look as the article header on the website. */}
             <div className="mt-8 flex flex-wrap items-center gap-3 text-xs font-bold text-[#5f6368]">
               <span className="rounded-full bg-brand-tint px-3 py-1.5 text-brand">{categoryName ?? t.editor.canvas.uncategorized}</span>
-              <span suppressHydrationWarning>{formatDay(publishedAt ? new Date(publishedAt) : (translation?.publishedAt ?? new Date()), locale)}</span>
+              <span suppressHydrationWarning>{formatDay(publishedAt ? new Date(publishedAt) : (translation?.publishedAt ?? new Date()), locale, timeZone)}</span>
               <span aria-hidden>•</span>
               <span className="inline-flex items-center gap-1.5">
                 <Clock3 className="size-3.5" />
@@ -562,6 +613,7 @@ export function PostEditor({
             </div>
             <textarea
               id="field-title"
+              data-undo-field
               value={title}
               onChange={(e) => edit(setTitle)(e.target.value.replace(/\n/g, ""))}
               // In the article's language, like the header preview above.
@@ -572,6 +624,7 @@ export function PostEditor({
             />
             <textarea
               id="field-excerpt"
+              data-undo-field
               value={excerpt}
               onChange={(e) => edit(setExcerpt)(e.target.value)}
               placeholder={t.editor.canvas.excerptPlaceholder}
@@ -627,6 +680,7 @@ export function PostEditor({
               result={seoScore}
               otherLanguage={otherVersion ? t.common.locales[otherVersion.locale] : ""}
               onGo={goToCheck}
+              onAiFix={(checks) => setSeoFix(fieldsFor(checks))}
               versionHref={otherVersion ? `/admin/posts/${post.id}?locale=${otherVersion.locale}` : null}
               onLeave={confirmLeave}
             />
@@ -653,9 +707,18 @@ export function PostEditor({
                 </p>
               )}
             </Section>
+            <Section id="planning" title={t.editor.panel.planning} hint={t.editor.panel.planningHint}>
+              <PlanningFields
+                postId={post.id}
+                plannedFor={planning.plannedFor}
+                assigneeId={planning.assigneeId}
+                assignees={planning.assignees}
+                canAssign={planning.canAssign}
+              />
+            </Section>
             <Section title={t.editor.panel.publish}>
               <Field label={t.editor.panel.status}>
-                <select value={status} onChange={(e) => edit(setStatus)(e.target.value as PostStatus)} className={inputClass}>
+                <select id="field-status" value={status} onChange={(e) => edit(setStatus)(e.target.value as PostStatus)} className={inputClass}>
                   {(Object.keys(STATUS) as PostStatus[]).map((s) => (
                     <option key={s} value={s} disabled={!canPublish && (s === "published" || s === "scheduled")}>
                       {t.common.status[s]}
@@ -675,16 +738,20 @@ export function PostEditor({
                 </Field>
               )}
               {canPublish && status !== "scheduled" && (
-                <Field label={t.editor.panel.publishedAt} hint={t.editor.panel.publishedAtHint}>
-                  <input
-                    id="field-published-at"
-                    type="datetime-local"
-                    value={publishedAt}
-                    onChange={(e) => edit(setPublishedAt)(e.target.value)}
-                    className={inputClass}
-                    suppressHydrationWarning
-                  />
-                </Field>
+                <div className="flex flex-col gap-1.5">
+                  {/* Field's hint slot is for short counters; this explanation is a sentence, so it goes below. */}
+                  <Field label={t.editor.panel.publishedAt}>
+                    <input
+                      id="field-published-at"
+                      type="datetime-local"
+                      value={publishedAt}
+                      onChange={(e) => edit(setPublishedAt)(e.target.value)}
+                      className={inputClass}
+                      suppressHydrationWarning
+                    />
+                  </Field>
+                  <p className="text-xs leading-relaxed text-zinc-500">{t.editor.panel.publishedAtHint}</p>
+                </div>
               )}
               {!canPublish && (
                 <p className="text-xs leading-relaxed text-zinc-500">
@@ -800,6 +867,32 @@ export function PostEditor({
         </aside>
       </div>
 
+      {seoFix && (
+        <SeoFixDialog
+          postId={post.id}
+          locale={locale}
+          site={site}
+          enabled={aiEnabled}
+          initial={seoFix}
+          article={{ title, excerpt, metaTitle, metaDescription, focusKeyword, html: content.html, slug: effectiveSlug }}
+          onClose={() => setSeoFix(null)}
+          onApply={(values) => {
+            setSeoFix(null);
+            if (values.metaTitle !== undefined) setMetaTitle(values.metaTitle);
+            if (values.metaDescription !== undefined) setMetaDescription(values.metaDescription);
+            if (values.excerpt !== undefined) setExcerpt(values.excerpt);
+            if (values.focusKeyword !== undefined) setFocusKeyword(values.focusKeyword);
+            if (values.slug !== undefined) {
+              setSlug(values.slug);
+              setSlugTouched(true);
+            }
+            setDirty(true);
+            setError(null);
+            setNotice({ text: fmt(t.editor.seoFix.applied, { n: Object.keys(values).length }) });
+          }}
+        />
+      )}
+
       {aiOpen && (
         <AiDialog
           postId={post.id}
@@ -809,7 +902,11 @@ export function PostEditor({
           source={otherVersion ? { locale: otherVersion.locale, exists: !!otherVersion.status } : null}
           enabled={aiEnabled}
           hasContent={!!title.trim() || countWords(content.html) > 0}
+          dirty={dirty}
           initialKeyword={focusKeyword}
+          initialMode={openAi}
+          initialEngine={aiEngine}
+          onTranslateOut={translateOut}
           onClose={() => setAiOpen(false)}
           onDone={(article, from) => {
             setAiOpen(false);
@@ -1063,7 +1160,11 @@ function AiDialog({
   source,
   enabled,
   hasContent,
+  dirty,
   initialKeyword,
+  initialMode,
+  initialEngine,
+  onTranslateOut,
   onClose,
   onDone,
 }: {
@@ -1075,7 +1176,13 @@ function AiDialog({
   source: { locale: Locale; exists: boolean } | null;
   enabled: boolean;
   hasContent: boolean;
+  /** This version has changes not saved yet (translating it out saves them first). */
+  dirty: boolean;
   initialKeyword: string;
+  initialMode: "translate" | null;
+  initialEngine: "own" | "builtin" | null;
+  /** Translate this version into `target`: done in that language's editor, which this opens. */
+  onTranslateOut: (target: Locale, engine: "own" | "builtin") => void;
   onClose: () => void;
   /** `from` is set when the article was translated from that locale. */
   onDone: (article: AiArticle, from: Locale | null) => void;
@@ -1083,10 +1190,14 @@ function AiDialog({
   const { t } = useI18n();
   const a = t.editor.ai;
   const titleId = useId();
+  // Into this version needs the other one saved; out of it needs something here to translate.
   const canTranslate = !!source?.exists;
-  const [engine, setEngine] = useState<"own" | "builtin">(enabled ? "builtin" : "own");
+  const canTranslateOut = !!source && hasContent;
+  const [engine, setEngine] = useState<"own" | "builtin">(initialEngine ?? (enabled ? "builtin" : "own"));
   // An empty version with the other language written is most likely waiting to be translated.
-  const [mode, setMode] = useState<"draft" | "translate">(canTranslate && !hasContent ? "translate" : "draft");
+  const [mode, setMode] = useState<"draft" | "translate">(initialMode ?? (canTranslate && !hasContent ? "translate" : "draft"));
+  // A version with content is most likely the one to translate; an empty one waits for the other.
+  const [direction, setDirection] = useState<"into" | "out">(!initialMode && canTranslateOut ? "out" : "into");
   const [topic, setTopic] = useState("");
   const [keyPoints, setKeyPoints] = useState("");
   const [keyword, setKeyword] = useState(initialKeyword);
@@ -1113,16 +1224,17 @@ function AiDialog({
   }, [onClose, running]);
 
   const language = (l: Locale) => t.common.locales[l];
-  const from = mode === "translate" && source ? source.locale : null;
+  const translatingOut = mode === "translate" && direction === "out" && !!source;
+  const from = mode === "translate" && direction === "into" && source ? source.locale : null;
   const parsed = engine === "own" && pasted.trim() ? parsePastedArticle(pasted, categories) : null;
   const options = [
     { mode: "draft" as const, icon: PenLine, label: a.draft, hint: a.draftHint, disabled: false },
     {
       mode: "translate" as const,
       icon: Languages,
-      label: source ? fmt(a.translate, { language: language(source.locale) }) : a.translate,
-      hint: canTranslate ? a.translateHint : source ? fmt(a.translateMissing, { language: language(source.locale) }) : "",
-      disabled: !canTranslate,
+      label: a.translateCard,
+      hint: canTranslate || canTranslateOut ? a.translateHint : source ? fmt(a.translateNothing, { language: language(source.locale) }) : "",
+      disabled: !canTranslate && !canTranslateOut,
     },
   ];
 
@@ -1195,7 +1307,8 @@ function AiDialog({
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          if (engine === "own") fillFromPaste();
+          if (translatingOut && source) onTranslateOut(source.locale, engine);
+          else if (engine === "own") fillFromPaste();
           else runBuiltin();
         }}
         role="dialog"
@@ -1278,6 +1391,44 @@ function AiDialog({
         </fieldset>
 
         <fieldset disabled={running} className="mt-4 flex flex-col gap-3">
+          {mode === "translate" && source && (
+            <div role="radiogroup" aria-label={a.direction} className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  { id: "out", from: locale, to: source.locale, possible: canTranslateOut },
+                  { id: "into", from: source.locale, to: locale, possible: canTranslate },
+                ] as const
+              ).map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={direction === d.id}
+                  disabled={!d.possible}
+                  data-direction={d.id}
+                  onClick={() => {
+                    setDirection(d.id);
+                    setPrompt("");
+                    setCopied(null);
+                  }}
+                  className={cn(
+                    "flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+                    direction === d.id ? "border-brand bg-brand-soft text-brand" : "border-zinc-200 text-zinc-600 hover:border-zinc-300",
+                  )}
+                >
+                  {language(d.from)}
+                  <ArrowRight className="size-3.5" />
+                  {language(d.to)}
+                </button>
+              ))}
+            </div>
+          )}
+          {translatingOut && source ? (
+            <p className="rounded-lg bg-zinc-50 px-3 py-2.5 text-sm leading-relaxed text-zinc-600">
+              {fmt(a.translateOutHint, { from: language(locale), to: language(source.locale) })}
+            </p>
+          ) : (
+          <>
           {engine === "own" && <p className={stepClass}><span className={stepNumber}>1</span>{a.step1}</p>}
           {mode === "draft" ? (
             <>
@@ -1339,6 +1490,15 @@ function AiDialog({
                   {running ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />}
                   {a.copyPrompt}
                 </button>
+                <a
+                  href="https://claude.ai/new"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:text-brand-hover"
+                >
+                  {a.openClaude}
+                  <ExternalLink className="size-3.5" />
+                </a>
                 {copied === "yes" && (
                   <span role="status" className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
                     <Check className="size-3.5" />
@@ -1393,9 +1553,11 @@ function AiDialog({
                 ))}
             </>
           )}
+          </>
+          )}
         </fieldset>
 
-        {hasContent && (
+        {hasContent && !translatingOut && (
           <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
             {a.replaceWarning}
@@ -1423,7 +1585,12 @@ function AiDialog({
           >
             {t.common.cancel}
           </button>
-          {engine === "own" ? (
+          {translatingOut && source ? (
+            <button type="submit" className={primaryButton}>
+              <Languages className="size-4" />
+              {fmt(dirty ? a.translateOutSave : a.translateOut, { language: language(source.locale) })}
+            </button>
+          ) : engine === "own" ? (
             <button type="submit" disabled={running || !parsed?.ok} className={primaryButton}>
               <Check className="size-4" />
               {a.fill}
@@ -1437,33 +1604,6 @@ function AiDialog({
         </div>
       </form>
     </div>
-  );
-}
-
-const inputClass =
-  "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/20 disabled:bg-zinc-100";
-
-function Section({ id, title, hint, children }: { id?: string; title: string; hint?: string; children: React.ReactNode }) {
-  return (
-    <section id={id} className="flex scroll-mt-4 flex-col gap-4 px-5 py-5">
-      <div>
-        <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500">{title}</h2>
-        {hint && <p className="mt-1 text-xs text-zinc-400">{hint}</p>}
-      </div>
-      {children}
-    </section>
-  );
-}
-
-function Field({ label, hint, children }: { label: string; hint?: React.ReactNode; children: React.ReactNode }) {
-  return (
-    <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
-      <span className="flex items-center justify-between">
-        {label}
-        {hint}
-      </span>
-      {children}
-    </label>
   );
 }
 
@@ -1678,12 +1818,15 @@ function SeoScoreSection({
   result,
   otherLanguage,
   onGo,
+  onAiFix,
   versionHref,
   onLeave,
 }: {
   result: ScoreResult;
   otherLanguage: string;
   onGo: (id: CheckId) => void;
+  /** Opens "Fix with AI" for these checks. */
+  onAiFix: (checks: CheckId[]) => void;
   /** The other language's editor, for the translation check. */
   versionHref: string | null;
   onLeave: (event: React.MouseEvent) => void;
@@ -1696,6 +1839,8 @@ function SeoScoreSection({
   const todo = result.checks.filter((c) => c.earned < 1).sort((a, b) => missing(b) - missing(a));
   const done = result.checks.filter((c) => c.earned === 1);
   const shown = showAll ? todo : todo.slice(0, 3);
+  // Checks an AI (or the address rule) can fix: the SEO fields, the summary, the address.
+  const fixable = todo.filter((c) => FIX_FOR[c.id]).map((c) => c.id);
   const action = "mt-1 inline-flex items-center gap-1 font-semibold text-brand hover:underline";
   const groups = (["seo", "content", "trust"] as const).map((g) => {
     const list = result.checks.filter((c) => c.group === g);
@@ -1717,6 +1862,20 @@ function SeoScoreSection({
           </ul>
         </div>
       </div>
+      {fixable.length > 0 && (
+        <div className="rounded-xl border border-brand-light bg-brand-soft/50 p-3">
+          <button
+            type="button"
+            data-ai-fix-all
+            onClick={() => onAiFix(fixable)}
+            className="inline-flex items-center gap-1.5 rounded-lg bg-brand px-3 py-1.5 text-xs font-semibold text-white shadow-sm hover:bg-brand-hover"
+          >
+            <Sparkles className="size-3.5" />
+            {s.aiFixAll}
+          </button>
+          <p className="mt-1.5 text-xs leading-relaxed text-zinc-600">{s.aiFixAllHint}</p>
+        </div>
+      )}
       {todo.length > 0 && (
         <div>
           <p className="text-xs font-semibold text-zinc-600">{fmt(s.toFix, { n: todo.length })}</p>
@@ -1744,9 +1903,16 @@ function SeoScoreSection({
                       </Link>
                     )
                   ) : (
-                    <button type="button" onClick={() => onGo(c.id)} className={action}>
-                      {s.fixIt} <ArrowRight className="size-3" />
-                    </button>
+                    <span className="flex flex-wrap gap-x-3">
+                      <button type="button" onClick={() => onGo(c.id)} className={action}>
+                        {s.fixIt} <ArrowRight className="size-3" />
+                      </button>
+                      {FIX_FOR[c.id] && (
+                        <button type="button" data-ai-fix={c.id} onClick={() => onAiFix([c.id])} className={action}>
+                          <Sparkles className="size-3" /> {s.aiFix}
+                        </button>
+                      )}
+                    </span>
                   )}
                 </div>
               </li>

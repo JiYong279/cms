@@ -47,8 +47,8 @@ function initials(name: string) {
 }
 
 function isActive(pathname: string, href: string) {
-  // "/admin" is the posts list; its editor lives under /admin/posts.
-  if (href === "/admin") return pathname === "/admin" || pathname.startsWith("/admin/posts");
+  // "/admin" is the posts list; its calendar and editor live under /admin/calendar and /admin/posts.
+  if (href === "/admin") return pathname === "/admin" || pathname.startsWith("/admin/posts") || pathname.startsWith("/admin/calendar");
   return pathname.startsWith(href);
 }
 

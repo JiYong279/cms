@@ -70,6 +70,13 @@ s = await writer.call(editorUrl, "savePost", [{ ...draft, status: "in_review" }]
 check("writer submits for review", s.ok === true && s.slug === "bai-thu-cua-nguoi-viet", JSON.stringify(s));
 s = await writer.call(`/admin/posts/${others.id}?locale=vi`, "savePost", [{ ...draft, postId: others.id, status: "draft" }]);
 check("writer cannot save others' post", s.ok === false && /không có quyền sửa/.test(s.error), JSON.stringify(s));
+await writer.req("/admin/calendar");
+s = await writer.call("/admin/calendar", "planPost", [{ postId, plannedFor: "2031-01-15" }]);
+check("writer plans own post", s.ok === true, JSON.stringify(s));
+s = await writer.call("/admin/calendar", "planPost", [{ postId, assigneeId: adminId }]);
+check("writer cannot assign an article", s.ok === false && /Chỉ biên tập viên và quản trị viên được giao bài/.test(s.error), JSON.stringify(s));
+s = await writer.call("/admin/calendar", "planPost", [{ postId: others.id, plannedFor: "2031-01-15" }]);
+check("writer cannot plan others' post", s.ok === false && /không có quyền sửa/.test(s.error), JSON.stringify(s));
 
 // Editor
 const editor = new Client();

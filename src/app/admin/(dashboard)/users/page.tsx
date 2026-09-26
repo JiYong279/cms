@@ -4,7 +4,7 @@ import { asc, count, eq } from "drizzle-orm";
 import { Check, Minus, UserPlus } from "lucide-react";
 import { getDb, schema } from "@/db";
 import { NoAccess } from "@/components/no-access";
-import { getT } from "@/i18n/server";
+import { getT, getTimeZone } from "@/i18n/server";
 import { requireUser } from "@/lib/auth";
 import { PERMISSIONS, ROLES, ROLE_BADGE, can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
@@ -15,14 +15,15 @@ export async function generateMetadata(): Promise<Metadata> {
   return { title: `${t.users.list.metaTitle} · ${t.common.appName}` };
 }
 
-function formatDate(date: Date, locale: string) {
-  return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
+function formatDate(date: Date, locale: string, timeZone: string) {
+  return new Intl.DateTimeFormat(locale, { dateStyle: "medium", timeZone }).format(date);
 }
 
 export default async function UsersPage({ searchParams }: PageProps<"/admin/users">) {
   const me = await requireUser();
   const t = await getT();
   if (!can(me.role, "users.manage")) return <NoAccess message={t.users.noAccess.list} />;
+  const timeZone = await getTimeZone();
 
   // Active accounts, or the disabled ones kept apart (?view=disabled).
   const disabledView = (await searchParams).view === "disabled";
@@ -117,7 +118,9 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/user
                   )}
                 </td>
                 <td className="px-4 py-3 text-zinc-600">{u.posts}</td>
-                <td className="whitespace-nowrap px-4 py-3 text-zinc-500">{formatDate(u.createdAt, t.common.dateLocale)}</td>
+                <td className="whitespace-nowrap px-4 py-3 text-zinc-500">
+                  <time dateTime={u.createdAt.toISOString()}>{formatDate(u.createdAt, t.common.dateLocale, timeZone)}</time>
+                </td>
                 <td className="px-4 py-3 text-right">
                   {u.id !== me.id && <UserRowActions id={u.id} name={u.name} active={u.active} />}
                 </td>

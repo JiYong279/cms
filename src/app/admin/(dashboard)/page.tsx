@@ -3,8 +3,9 @@ import { count, desc, isNull } from "drizzle-orm";
 import { AlertTriangle, CalendarClock, CheckCircle2, Clock, Search } from "lucide-react";
 import { getDb, schema } from "@/db";
 import type { PostStatus } from "@/db/schema";
+import { PostsLayoutSwitch } from "@/components/posts-layout-switch";
 import { fmt, type Dict } from "@/i18n";
-import { getLang, getT } from "@/i18n/server";
+import { getLang, getT, getTimeZone } from "@/i18n/server";
 import { requireUser } from "@/lib/auth";
 import { can, canDeletePost } from "@/lib/permissions";
 import { LOCALES, isStale, slugify, viewOrigin } from "@/lib/posts";
@@ -22,7 +23,7 @@ export async function generateMetadata() {
 const VIEWS = ["all", "published", "draft", "in_review", "scheduled", "trash"] as const;
 type View = (typeof VIEWS)[number];
 
-function relativeTime(date: Date, t: Dict) {
+function relativeTime(date: Date, t: Dict, timeZone: string) {
   const minutes = Math.round((Date.now() - date.getTime()) / 60_000);
   if (minutes < 1) return t.common.relative.justNow;
   if (minutes < 60) return fmt(t.common.relative.minutes, { n: minutes });
@@ -30,7 +31,7 @@ function relativeTime(date: Date, t: Dict) {
   if (hours < 24) return fmt(t.common.relative.hours, { n: hours });
   const days = Math.round(hours / 24);
   if (days < 7) return fmt(t.common.relative.days, { n: days });
-  return new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "medium" }).format(date);
+  return new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "medium", timeZone }).format(date);
 }
 
 /** Keeps the other filters when one of them changes. */
@@ -45,6 +46,7 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
   const user = await requireUser();
   const t = await getT();
   const lang = await getLang();
+  const timeZone = await getTimeZone();
   await publishDuePosts();
   const seesAll = can(user.role, "posts.editAny");
   const params = await searchParams;
@@ -144,9 +146,9 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
       }),
       publicUrl:
         main?.status === "published" ? `${viewOrigin(post.site)}${post.site.blogPaths[locale]}/${main.slug}` : null,
-      updatedLabel: relativeTime(post.updatedAt, t),
+      updatedLabel: relativeTime(post.updatedAt, t, timeZone),
       trashedLabel: post.deletedAt
-        ? `${relativeTime(post.deletedAt, t)}${post.deletedBy ? ` · ${userNames.get(post.deletedBy) ?? "?"}` : ""}`
+        ? `${relativeTime(post.deletedAt, t, timeZone)}${post.deletedBy ? ` · ${userNames.get(post.deletedBy) ?? "?"}` : ""}`
         : null,
       canDelete: canDeletePost(user, post, post.translations.map((tr) => tr.status)),
     };
@@ -174,10 +176,13 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
             {seesAll ? fmt(t.posts.subtitleAll, { sites: sites.map((s) => s.name).join(t.posts.and) }) : t.posts.subtitleOwn}
           </p>
         </div>
-        <NewPostButton
-          sites={sites.map((s) => ({ id: s.id, name: s.name, baseUrl: s.baseUrl, posts: postCounts.get(s.id) ?? 0 }))}
-          defaultSiteId={site}
-        />
+        <div className="flex flex-wrap items-center gap-3">
+          <PostsLayoutSwitch current="list" site={site} />
+          <NewPostButton
+            sites={sites.map((s) => ({ id: s.id, name: s.name, baseUrl: s.baseUrl, posts: postCounts.get(s.id) ?? 0 }))}
+            defaultSiteId={site}
+          />
+        </div>
       </header>
 
       <section className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">

@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import type { Locale } from "@/db/schema";
 import { siteBrief } from "./ai-brief";
+import { SOURCE_RULES } from "./ai-sources";
 
 /**
  * Writing with the person's own Claude (or any chat assistant) instead of the CMS's API:
@@ -22,7 +23,8 @@ export type PastedArticle = {
   sections: number;
 };
 
-export type PasteError = "empty" | "noTitle" | "noBody";
+/** "isPrompt": the prompt itself was pasted back instead of the AI's answer to it. */
+export type PasteError = "empty" | "noTitle" | "noBody" | "isPrompt";
 
 type Site = { id: string; name: string; baseUrl: string };
 type Category = { id: string; name: string };
@@ -32,9 +34,12 @@ const LANGUAGE: Record<Locale, { vi: string; en: string }> = {
   en: { vi: "tiếng Anh", en: "English" },
 };
 
+/** The title line of each format template: an answer carrying it is the template, not an article. */
+const TEMPLATE_TITLE = { vi: "Tiêu đề bài (tối đa khoảng 70 ký tự)", en: "Article title (about 70 characters at most)" };
+
 const FORMAT = {
   vi: (categories: Category[]) => `---
-title: Tiêu đề bài (tối đa khoảng 70 ký tự)
+title: ${TEMPLATE_TITLE.vi}
 excerpt: Tóm tắt 1–2 câu, hiện dưới tiêu đề
 metaTitle: Tiêu đề SEO, dưới 60 ký tự
 metaDescription: Mô tả SEO, 120–155 ký tự
@@ -45,7 +50,7 @@ ${categories.length ? `category: đúng một trong: ${categories.map((c) => c.n
 
 Nội dung…`,
   en: (categories: Category[]) => `---
-title: Article title (about 70 characters at most)
+title: ${TEMPLATE_TITLE.en}
 excerpt: One or two sentence summary shown under the title
 metaTitle: SEO title, under 60 characters
 metaDescription: SEO description, 120–155 characters
@@ -64,14 +69,14 @@ const RULES = {
 - Khung nổi bật viết như sau (NOTE = thông tin, TIP = điểm chính, WARNING = lưu ý):
   > [!TIP]
   > Nội dung của khung.
-- Chỉ trả về bài viết theo đúng khuôn dưới đây, không thêm lời dẫn trước hay sau.`,
+- Đặt toàn bộ bài (từ dòng --- đầu tiên tới hết) trong MỘT khối code \`\`\`markdown, không tạo tài liệu hay artifact riêng, không thêm lời dẫn trước hay sau.`,
   en: `Formatting:
 - Start every section with "## " and sub-sections with "### ". Do not use "# " and do not repeat the title in the body.
 - Keep paragraphs short; use lists, **bold** and Markdown tables for comparisons.
 - Write highlighted boxes like this (NOTE = information, TIP = key point, WARNING = caution):
   > [!TIP]
   > Text of the box.
-- Answer with the article in exactly the format below, with nothing before or after it.`,
+- Put the whole article (from the first --- line to the end) in ONE \`\`\`markdown code block, not in a separate document or artifact, with nothing before or after it.`,
 };
 
 /** Prompt for a new article in `locale`. */
@@ -98,6 +103,8 @@ export function draftPrompt(input: {
         "",
         "Giọng văn rõ ràng, thân thiện, chuyên nghiệp; ưu tiên ví dụ cụ thể. Không bịa số liệu, giá, luật hay quy định; khi nội dung phụ thuộc vào quy định, nhắc người đọc kiểm tra văn bản hiện hành. Kết bài bằng một khung TIP tóm tắt điểm chính.",
         "",
+        SOURCE_RULES.vi,
+        "",
         RULES.vi,
         "",
         FORMAT.vi(input.categories),
@@ -112,6 +119,8 @@ export function draftPrompt(input: {
         input.focusKeyword.trim() ? `Main search phrase: ${input.focusKeyword.trim()}` : null,
         "",
         "Clear, warm, professional voice; prefer concrete examples. Do not invent statistics, prices, laws or regulations; when a point depends on a regulation, tell readers to check the current text. End with a TIP box that sums up the key point.",
+        "",
+        SOURCE_RULES.en,
         "",
         RULES.en,
         "",
@@ -130,6 +139,21 @@ export function translatePrompt(input: {
 }) {
   const vi = input.to === "vi";
   const s = input.source;
+  // Markdown answers drop pictures and videos unless told how to carry them over.
+  const media = [
+    /<img\b/i.test(s.html) &&
+      (vi
+        ? 'Giữ mọi ảnh ở đúng vị trí, viết thành ![mô tả ảnh đã dịch](đường dẫn giữ nguyên "chú thích đã dịch"); không đổi đường dẫn ảnh.'
+        : 'Keep every image where it is, written as ![translated description](same address "translated caption"); never change the image address.'),
+    /<a\b[^>]*\bhref=/i.test(s.html) &&
+      (vi
+        ? "Giữ mọi link và nguồn tham khảo, viết thành [chữ đã dịch](đường dẫn giữ nguyên); không đổi, không bỏ đường dẫn nào."
+        : "Keep every link and source, written as [translated text](same address); never change or drop an address."),
+    /data-youtube-video/.test(s.html) &&
+      (vi
+        ? "Giữ nguyên mọi video: chép nguyên thẻ <div data-youtube-video>…</div> vào đúng vị trí."
+        : "Keep every video: copy its <div data-youtube-video>…</div> tag unchanged, in the same place."),
+  ].filter((line) => typeof line === "string");
   const intro = vi
     ? [
         `Bạn dịch bài blog cho website ${input.site.name} (${input.site.baseUrl}).`,
@@ -137,6 +161,7 @@ export function translatePrompt(input: {
         "",
         `Hãy dịch bài dưới đây từ ${LANGUAGE[input.from].vi} sang ${LANGUAGE[input.to].vi}, tự nhiên như người bản xứ viết, giữ nguyên ý, giọng văn và bố cục. Phần SEO (tiêu đề SEO, mô tả, từ khoá) hãy viết lại theo cách người đọc ${LANGUAGE[input.to].vi} sẽ tìm kiếm.`,
         "Nội dung bài đang ở dạng HTML: <h2>/<h3> là mục, <div data-callout data-variant=\"info|success|warning\"> là khung NOTE/TIP/WARNING.",
+        ...media,
         "",
         RULES.vi,
         "",
@@ -148,6 +173,7 @@ export function translatePrompt(input: {
         "",
         `Translate the article below from ${LANGUAGE[input.from].en} into ${LANGUAGE[input.to].en}, naturally, as a native writer would, keeping the meaning, tone and structure. Rewrite the SEO fields (SEO title, description, search phrase) the way ${LANGUAGE[input.to].en} readers would search.`,
         "The body is HTML: <h2>/<h3> are sections, <div data-callout data-variant=\"info|success|warning\"> are NOTE/TIP/WARNING boxes.",
+        ...media,
         "",
         RULES.en,
         "",
@@ -183,6 +209,10 @@ const FIELDS: Record<string, keyof PastedArticle> = {
 export function parsePastedArticle(text: string, categories: Category[]): { ok: true; article: PastedArticle } | { ok: false; error: PasteError } {
   let src = text.replace(/\r\n?/g, "\n").trim();
   if (!src) return { ok: false, error: "empty" };
+  // The instructions only the prompt carries: someone pasted it here instead of into the chat.
+  if (src.includes(RULES.vi.split("\n").at(-1)!) || src.includes(RULES.en.split("\n").at(-1)!)) {
+    return { ok: false, error: "isPrompt" };
+  }
 
   // Inside a ```markdown block? Keep what the block holds.
   const fenced = src.match(/```[a-z]*\n([\s\S]*?)\n```/i);
@@ -206,6 +236,7 @@ export function parsePastedArticle(text: string, categories: Category[]): { ok: 
     fields.title ||= h1[1].trim();
     src = src.slice(h1[0].length).trim();
   }
+  if (fields.title === TEMPLATE_TITLE.vi || fields.title === TEMPLATE_TITLE.en) return { ok: false, error: "isPrompt" };
   if (!fields.title) return { ok: false, error: "noTitle" };
   if (!src) return { ok: false, error: "noBody" };
 

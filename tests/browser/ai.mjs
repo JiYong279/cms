@@ -98,6 +98,7 @@ try {
   expect("markup the editor does not support is dropped", !/script|onclick|style="color/.test(state.html));
   const draftRequest = requests.at(-1);
   expect("the prompt carries the topic, key points and language", /Topic: phần mềm EMR/.test(draftRequest.messages[0].content) && /Chi phí/.test(draftRequest.messages[0].content) && /Write in Vietnamese/.test(draftRequest.system));
+  expect("the built-in AI must link its sources, official first, and never invent links", ["Sources (required)", "moh.gov.vn", "leave the fact out"].every((s) => draftRequest.system.includes(s)));
   expect("the model must answer through the article tool", draftRequest.tool_choice?.name === "article" && draftRequest.stream === true);
   const offered = draftRequest.tools[0].input_schema.properties.category?.enum ?? [];
   const picked = await page.$$eval("aside select", (selects) => {
@@ -114,7 +115,10 @@ try {
   await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click('nav[aria-label="Ngôn ngữ"] a[href$="locale=en"]')]);
   await page.waitForSelector(".ProseMirror");
   const submitTranslate = await runAi("Dịch từ bản Tiếng Việt");
-  expect("an empty English version opens the dialog on 'Translate'", await page.$eval('[role="dialog"]', (d) => d.querySelector('input[name="aiMode"]:checked')?.closest("label")?.innerText.includes("Dịch từ bản Tiếng Việt")));
+  expect(
+    "an empty English version opens the dialog on translating from Vietnamese",
+    await page.$eval('[role="dialog"]', (d) => d.querySelector('input[name="aiMode"]:checked')?.closest("label")?.innerText.includes("Dịch bài") && d.querySelector('[data-direction="into"]')?.getAttribute("aria-checked") === "true"),
+  );
   await shot(page, "ai-03-translate-dialog");
   await submitTranslate();
   state = await editorState();
@@ -142,6 +146,20 @@ try {
   // 4. The activity log records both uses of the AI.
   const activity = await admin.req("/admin/activity");
   expect("activity log records the AI draft and translation", activity.text.includes("Dùng AI viết nháp bản VI") && activity.text.includes("Dùng AI dịch bản VI sang bản EN"));
+
+  // 5. "Fix with AI" in the SEO score, with the built-in AI: suggestions to review, then used.
+  await page.goto(`${CMS}/admin/posts/${postId}?locale=vi`, { waitUntil: "networkidle0" });
+  await page.click('[data-check="seoTitleLength"] [data-ai-fix], [data-check="keywordInTitle"] [data-ai-fix], [data-ai-fix-all]');
+  await page.waitForSelector("[data-seo-fix]", { visible: true });
+  expect("with an API key, 'Fix with AI' starts on the built-in AI", (await page.$eval('[data-seo-fix] [role="radio"][aria-checked="true"]', (b) => b.textContent)) === "AI tích hợp");
+  await page.click("[data-seo-fix] button::-p-text(Nhờ AI đề xuất)");
+  await page.waitForSelector("[data-seo-fix] [data-proposals]", { timeout: 20000 });
+  const fixRequest = requests.at(-1);
+  expect("the request asks only for the chosen fields through the seo_fields tool", fixRequest.tool_choice?.name === "seo_fields" && Object.keys(fixRequest.tools[0].input_schema.properties).every((k) => ["metaTitle", "metaDescription", "excerpt", "focusKeyword"].includes(k)));
+  await page.click("[data-seo-fix] button::-p-text(Dùng)");
+  await page.waitForFunction(() => !document.querySelector("[data-seo-fix]"));
+  expect("the built-in AI's SEO title goes into the editor", (await page.$eval("#field-meta-title", (e) => e.value)).startsWith("[AI] "));
+  expect("activity log records the AI SEO fix", (await admin.req("/admin/activity")).text.includes("Dùng AI sửa phần SEO bản VI"));
 } catch (error) {
   failures++;
   console.log("ERROR:", error.message);

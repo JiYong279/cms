@@ -1,7 +1,8 @@
 // A stand-in for the Anthropic Messages API, so the AI assistant can be tested without a key.
 // Start the CMS with ANTHROPIC_API_KEY=fake ANTHROPIC_BASE_URL=http://localhost:3999 to use it.
-// It answers every request through the "article" tool, as the real model is forced to:
-// drafts echo the topic, translations mark the source text so the test can recognise them.
+// It answers every request through the tool it is given, as the real model is forced to:
+// drafts echo the topic, translations mark the source text so the test can recognise them,
+// and "Fix with AI" gets SEO fields of the right lengths.
 import http from "node:http";
 
 export const FAKE_AI_PORT = Number(process.env.FAKE_AI_PORT ?? 3999);
@@ -45,6 +46,17 @@ function translation(prompt) {
   };
 }
 
+/** "Fix with AI" in the SEO score: the fields asked for, each within the score's lengths. */
+function seoFields(properties) {
+  const values = {
+    metaTitle: "[AI] Phần mềm quản lý spa: 5 tiêu chí chọn đúng",
+    metaDescription: "[AI] Chọn phần mềm quản lý spa thế nào để lễ tân bớt việc, khách không trùng lịch? Năm tiêu chí giúp chủ spa chọn đúng ngay lần đầu.",
+    excerpt: "[AI] Năm tiêu chí giúp chủ spa chọn đúng phần mềm quản lý.",
+    focusKeyword: "phần mềm quản lý spa",
+  };
+  return Object.fromEntries(Object.keys(properties).map((k) => [k, values[k] ?? `[AI] ${k}`]));
+}
+
 function sse(res, events) {
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
   for (const [event, data] of events) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -63,13 +75,19 @@ export function startFakeAnthropic() {
       const request = JSON.parse(body);
       requests.push(request);
       const prompt = request.messages[0].content;
-      const categories = request.tools?.[0]?.input_schema?.properties?.category?.enum;
-      const input = request.system.startsWith("You translate") ? translation(prompt) : draft(prompt, categories);
+      const tool = request.tools?.[0];
+      const categories = tool?.input_schema?.properties?.category?.enum;
+      const input =
+        tool?.name === "seo_fields"
+          ? seoFields(tool.input_schema.properties)
+          : request.system?.startsWith("You translate")
+            ? translation(prompt)
+            : draft(prompt, categories);
       const json = JSON.stringify(input);
       const message = { id: "msg_fake", type: "message", role: "assistant", model: request.model, content: [], stop_reason: null, stop_sequence: null, usage: { input_tokens: 10, output_tokens: 1 } };
       const events = [
         ["message_start", { type: "message_start", message }],
-        ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "toolu_fake", name: "article", input: {} } }],
+        ["content_block_start", { type: "content_block_start", index: 0, content_block: { type: "tool_use", id: "toolu_fake", name: tool?.name ?? "article", input: {} } }],
         // Sent in pieces, like the real stream.
         ...json.match(/[\s\S]{1,200}/g).map((part) => [
           "content_block_delta",
@@ -82,7 +100,7 @@ export function startFakeAnthropic() {
       if (request.stream) sse(res, events);
       else {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ ...message, content: [{ type: "tool_use", id: "toolu_fake", name: "article", input }], stop_reason: "tool_use" }));
+        res.end(JSON.stringify({ ...message, content: [{ type: "tool_use", id: "toolu_fake", name: tool?.name ?? "article", input }], stop_reason: "tool_use" }));
       }
     });
   });

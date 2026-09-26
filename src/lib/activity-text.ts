@@ -10,6 +10,8 @@ import { fmt, type Dict } from "@/i18n";
  *   post.status_changed / post.unpublished   { locale, status }
  *   post.synced                              { locale, source }
  *   post.purged                              { days }
+ *   post.planned                             { date: "YYYY-MM-DD" }
+ *   post.assigned                            { name }
  *   post.created                             (uses the entry's website name)
  *   user.created                             { name, role }
  *   user.updated                             { name, changes: [{ type: "role", from, to } | { type: "lock" } | { type: "unlock" } | { type: "rename", to }] }
@@ -40,6 +42,11 @@ export function describeActivity(entry: Entry, t: Dict): string {
   if (source) vars.source = source.toUpperCase();
   const status = str(meta.status);
   if (status) vars.status = statuses[status] ?? status;
+  // A calendar day, not an instant: formatted in UTC so it never shifts to the day before or after.
+  const date = str(meta.date);
+  if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
+    vars.date = new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+  }
   const days = str(meta.days);
   if (days) vars.days = days;
   const name = str(meta.name);
