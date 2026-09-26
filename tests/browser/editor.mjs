@@ -104,6 +104,25 @@ try {
   await page.keyboard.press("Enter");
   await page.keyboard.press("Enter");
 
+  // The toolbar's Undo/Redo act on the field being typed in: here the title, not the article body.
+  const bodyBefore = await page.$eval(pm, (el) => el.innerText);
+  const titleBefore = await page.$eval("#field-title", (el) => el.value);
+  await page.click("#field-title");
+  await page.keyboard.press("End");
+  await page.keyboard.type("X");
+  await page.click('[role="toolbar"] button[title^="Hoàn tác"]');
+  await sleep(150);
+  expect(
+    "toolbar Undo while in the title undoes the title, not the body",
+    (await page.$eval("#field-title", (el) => el.value)) === titleBefore && (await page.$eval(pm, (el) => el.innerText)) === bodyBefore,
+    `${await page.$eval("#field-title", (el) => el.value)} | ${(await page.$eval(pm, (el) => el.innerText)).slice(0, 60)}`,
+  );
+  await page.click('[role="toolbar"] button[title^="Làm lại"]');
+  await sleep(150);
+  expect("toolbar Redo brings the title change back", (await page.$eval("#field-title", (el) => el.value)) === `${titleBefore}X`);
+  await page.click('[role="toolbar"] button[title^="Hoàn tác"]');
+  await page.evaluate(() => document.querySelector(".ProseMirror").editor.commands.focus("end"));
+
   // Toolbar: Insert → YouTube
   const clickByText = async (selector, text) => {
     const handles = await page.$$(selector);

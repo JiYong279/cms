@@ -571,6 +571,7 @@ export function PostEditor({
             </div>
             <textarea
               id="field-title"
+              data-undo-field
               value={title}
               onChange={(e) => edit(setTitle)(e.target.value.replace(/\n/g, ""))}
               // In the article's language, like the header preview above.
@@ -581,6 +582,7 @@ export function PostEditor({
             />
             <textarea
               id="field-excerpt"
+              data-undo-field
               value={excerpt}
               onChange={(e) => edit(setExcerpt)(e.target.value)}
               placeholder={t.editor.canvas.excerptPlaceholder}
