@@ -34,7 +34,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
   if (!post) notFound();
   if (!canEditPost(user, post)) return <NoAccess message={t.editor.noAccess} />;
 
-  const { locale: localeParam } = await searchParams;
+  const { locale: localeParam, ai, engine } = await searchParams;
   const locale: Locale = LOCALES.find((l) => l === localeParam) ?? post.site.defaultLocale;
   const translation = post.translations.find((tr) => tr.locale === locale) ?? null;
   // Counted by the SEO score: articles by an author with a public profile show a real byline.
@@ -117,6 +117,8 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
       locked={!canEditTranslation(user, translation?.status ?? null)}
       canDelete={canDeletePost(user, post, post.translations.map((tr) => tr.status))}
       aiEnabled={aiConfigured()}
+      openAi={ai === "translate" ? "translate" : null}
+      aiEngine={engine === "own" || engine === "builtin" ? engine : null}
       authorHasProfile={authorHasProfile}
       timeZone={await getTimeZone()}
       trashed={post.deletedAt ? { at: post.deletedAt, by: trashedBy ?? null } : null}

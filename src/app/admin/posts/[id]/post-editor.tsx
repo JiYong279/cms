@@ -69,6 +69,9 @@ type Props = {
   history: { at: Date; who: string; summary: string }[];
   /** ANTHROPIC_API_KEY is set, so the AI assistant can run. */
   aiEnabled: boolean;
+  /** Opened from the other language's "translate into this one": start with the AI dialog translating. */
+  openAi: "translate" | null;
+  aiEngine: "own" | "builtin" | null;
   /** The article's author has a public profile in this language (see the Account page). */
   authorHasProfile: boolean;
   /** The viewer's zone (getTimeZone), so dates read the same when rendered on the server and in the browser. */
@@ -135,6 +138,8 @@ export function PostEditor({
   aiEnabled,
   authorHasProfile,
   timeZone,
+  openAi,
+  aiEngine,
 }: Props) {
   const router = useRouter();
   const { t } = useI18n();
@@ -165,7 +170,9 @@ export function PostEditor({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; href?: string } | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  const [aiOpen, setAiOpen] = useState(openAi === "translate");
+  // Where to go once the save in progress succeeds (translating this version into the other language).
+  const afterSave = useRef<string | null>(null);
   const [replacement, setReplacement] = useState<{ html: string; version: number } | null>(null);
   // The locale the current content was machine-translated from, until it is saved.
   const [translatedFrom, setTranslatedFrom] = useState<Locale | null>(null);
@@ -214,6 +221,7 @@ export function PostEditor({
         translatedFrom,
       });
       if (!result.ok) {
+        afterSave.current = null;
         setError(result.error);
         return;
       }
@@ -222,6 +230,11 @@ export function PostEditor({
       setSavedAt(new Date(result.savedAt));
       setDirty(false);
       setTranslatedFrom(null);
+      if (afterSave.current) {
+        router.push(afterSave.current);
+        afterSave.current = null;
+        return;
+      }
       if (!next) return;
       setStatus(nextStatus);
       setScheduledAt(nextSchedule);
@@ -236,6 +249,7 @@ export function PostEditor({
     });
   }, [
     t,
+    router,
     site.name,
     site.viewOrigin,
     site.blogPath,
@@ -278,6 +292,27 @@ export function PostEditor({
     window.addEventListener("beforeunload", onBeforeUnload);
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, [dirty]);
+
+  // The ?ai= and ?engine= that opened the dialog have done their job; a reload should not reopen it.
+  useEffect(() => {
+    if (!openAi) return;
+    const url = new URL(window.location.href);
+    url.searchParams.delete("ai");
+    url.searchParams.delete("engine");
+    window.history.replaceState(window.history.state, "", url);
+  }, [openAi]);
+
+  /** Translates this version into the other language: saves it first when needed, then opens that one. */
+  function translateOut(target: Locale, engine: "own" | "builtin") {
+    const url = `/admin/posts/${post.id}?locale=${target}&ai=translate&engine=${engine}`;
+    setAiOpen(false);
+    if (dirty) {
+      afterSave.current = url;
+      save();
+    } else {
+      router.push(url);
+    }
+  }
 
   function confirmLeave(event: React.MouseEvent) {
     if (dirty && !window.confirm(t.editor.confirmLeave)) event.preventDefault();
@@ -829,7 +864,11 @@ export function PostEditor({
           source={otherVersion ? { locale: otherVersion.locale, exists: !!otherVersion.status } : null}
           enabled={aiEnabled}
           hasContent={!!title.trim() || countWords(content.html) > 0}
+          dirty={dirty}
           initialKeyword={focusKeyword}
+          initialMode={openAi}
+          initialEngine={aiEngine}
+          onTranslateOut={translateOut}
           onClose={() => setAiOpen(false)}
           onDone={(article, from) => {
             setAiOpen(false);
@@ -1083,7 +1122,11 @@ function AiDialog({
   source,
   enabled,
   hasContent,
+  dirty,
   initialKeyword,
+  initialMode,
+  initialEngine,
+  onTranslateOut,
   onClose,
   onDone,
 }: {
@@ -1095,7 +1138,13 @@ function AiDialog({
   source: { locale: Locale; exists: boolean } | null;
   enabled: boolean;
   hasContent: boolean;
+  /** This version has changes not saved yet (translating it out saves them first). */
+  dirty: boolean;
   initialKeyword: string;
+  initialMode: "translate" | null;
+  initialEngine: "own" | "builtin" | null;
+  /** Translate this version into `target`: done in that language's editor, which this opens. */
+  onTranslateOut: (target: Locale, engine: "own" | "builtin") => void;
   onClose: () => void;
   /** `from` is set when the article was translated from that locale. */
   onDone: (article: AiArticle, from: Locale | null) => void;
@@ -1103,10 +1152,14 @@ function AiDialog({
   const { t } = useI18n();
   const a = t.editor.ai;
   const titleId = useId();
+  // Into this version needs the other one saved; out of it needs something here to translate.
   const canTranslate = !!source?.exists;
-  const [engine, setEngine] = useState<"own" | "builtin">(enabled ? "builtin" : "own");
+  const canTranslateOut = !!source && hasContent;
+  const [engine, setEngine] = useState<"own" | "builtin">(initialEngine ?? (enabled ? "builtin" : "own"));
   // An empty version with the other language written is most likely waiting to be translated.
-  const [mode, setMode] = useState<"draft" | "translate">(canTranslate && !hasContent ? "translate" : "draft");
+  const [mode, setMode] = useState<"draft" | "translate">(initialMode ?? (canTranslate && !hasContent ? "translate" : "draft"));
+  // A version with content is most likely the one to translate; an empty one waits for the other.
+  const [direction, setDirection] = useState<"into" | "out">(!initialMode && canTranslateOut ? "out" : "into");
   const [topic, setTopic] = useState("");
   const [keyPoints, setKeyPoints] = useState("");
   const [keyword, setKeyword] = useState(initialKeyword);
@@ -1133,16 +1186,17 @@ function AiDialog({
   }, [onClose, running]);
 
   const language = (l: Locale) => t.common.locales[l];
-  const from = mode === "translate" && source ? source.locale : null;
+  const translatingOut = mode === "translate" && direction === "out" && !!source;
+  const from = mode === "translate" && direction === "into" && source ? source.locale : null;
   const parsed = engine === "own" && pasted.trim() ? parsePastedArticle(pasted, categories) : null;
   const options = [
     { mode: "draft" as const, icon: PenLine, label: a.draft, hint: a.draftHint, disabled: false },
     {
       mode: "translate" as const,
       icon: Languages,
-      label: source ? fmt(a.translate, { language: language(source.locale) }) : a.translate,
-      hint: canTranslate ? a.translateHint : source ? fmt(a.translateMissing, { language: language(source.locale) }) : "",
-      disabled: !canTranslate,
+      label: a.translateCard,
+      hint: canTranslate || canTranslateOut ? a.translateHint : source ? fmt(a.translateNothing, { language: language(source.locale) }) : "",
+      disabled: !canTranslate && !canTranslateOut,
     },
   ];
 
@@ -1215,7 +1269,8 @@ function AiDialog({
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          if (engine === "own") fillFromPaste();
+          if (translatingOut && source) onTranslateOut(source.locale, engine);
+          else if (engine === "own") fillFromPaste();
           else runBuiltin();
         }}
         role="dialog"
@@ -1298,6 +1353,44 @@ function AiDialog({
         </fieldset>
 
         <fieldset disabled={running} className="mt-4 flex flex-col gap-3">
+          {mode === "translate" && source && (
+            <div role="radiogroup" aria-label={a.direction} className="grid grid-cols-2 gap-2">
+              {(
+                [
+                  { id: "out", from: locale, to: source.locale, possible: canTranslateOut },
+                  { id: "into", from: source.locale, to: locale, possible: canTranslate },
+                ] as const
+              ).map((d) => (
+                <button
+                  key={d.id}
+                  type="button"
+                  role="radio"
+                  aria-checked={direction === d.id}
+                  disabled={!d.possible}
+                  data-direction={d.id}
+                  onClick={() => {
+                    setDirection(d.id);
+                    setPrompt("");
+                    setCopied(null);
+                  }}
+                  className={cn(
+                    "flex items-center justify-center gap-2 rounded-lg border px-3 py-2 text-sm font-medium transition disabled:cursor-not-allowed disabled:opacity-40",
+                    direction === d.id ? "border-brand bg-brand-soft text-brand" : "border-zinc-200 text-zinc-600 hover:border-zinc-300",
+                  )}
+                >
+                  {language(d.from)}
+                  <ArrowRight className="size-3.5" />
+                  {language(d.to)}
+                </button>
+              ))}
+            </div>
+          )}
+          {translatingOut && source ? (
+            <p className="rounded-lg bg-zinc-50 px-3 py-2.5 text-sm leading-relaxed text-zinc-600">
+              {fmt(a.translateOutHint, { from: language(locale), to: language(source.locale) })}
+            </p>
+          ) : (
+          <>
           {engine === "own" && <p className={stepClass}><span className={stepNumber}>1</span>{a.step1}</p>}
           {mode === "draft" ? (
             <>
@@ -1413,9 +1506,11 @@ function AiDialog({
                 ))}
             </>
           )}
+          </>
+          )}
         </fieldset>
 
-        {hasContent && (
+        {hasContent && !translatingOut && (
           <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
             {a.replaceWarning}
@@ -1443,7 +1538,12 @@ function AiDialog({
           >
             {t.common.cancel}
           </button>
-          {engine === "own" ? (
+          {translatingOut && source ? (
+            <button type="submit" className={primaryButton}>
+              <Languages className="size-4" />
+              {fmt(dirty ? a.translateOutSave : a.translateOut, { language: language(source.locale) })}
+            </button>
+          ) : engine === "own" ? (
             <button type="submit" disabled={running || !parsed?.ok} className={primaryButton}>
               <Check className="size-4" />
               {a.fill}
