@@ -34,4 +34,6 @@ await admin.req("/admin/users");
 await admin.call("/admin/users", "setTimeZone", ["<script>"]);
 check("setTimeZone refuses a value that is not a time zone", !admin.cookies.has("cms_tz"));
 await admin.call("/admin/users", "setTimeZone", ["Asia/Saigon"]);
-check("setTimeZone saves a zone the browser reports", admin.cookies.get("cms_tz") === "Asia/Saigon", admin.cookies.get("cms_tz"));
+// Cookie values travel URL-encoded ("Asia%2FSaigon"); the server reads them decoded.
+const saved = decodeURIComponent(admin.cookies.get("cms_tz") ?? "");
+check("setTimeZone saves a zone the browser reports", saved === "Asia/Saigon", saved);
