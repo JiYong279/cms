@@ -1,0 +1,41 @@
+# Local image storage that behaves like DigitalOcean Spaces, for `npm run dev`:
+#
+#   docker compose -f docker-compose.minio.yml up -d
+#
+# Runs PGSTY Silo (github.com/pgsty/silo), the maintained fork of the open-source MinIO server:
+# same S3 API and MINIO_* settings, and it bundles the MinIO client as `mcli`.
+# Console at http://localhost:9001 (minioadmin / minioadmin). The S3_* values to use are in .env.example.
+# Kept apart from docker-compose.yml, which the staging deploy ships to the server.
+name: cms-minio
+
+services:
+  minio:
+    image: pgsty/silo:latest
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    volumes:
+      - minio-data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "mcli alias set local http://127.0.0.1:9000 minioadmin minioadmin >/dev/null && mcli ready local"]
+      interval: 5s
+      retries: 10
+
+  # Creates the "cms" bucket once and lets anyone read its files, as the website shows them.
+  minio-init:
+    image: pgsty/silo:latest
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+    entrypoint: >
+      sh -c "mcli alias set local http://minio:9000 minioadmin minioadmin &&
+             mcli mb --ignore-existing local/cms &&
+             mcli anonymous set download local/cms"
+
+volumes:
+  minio-data:

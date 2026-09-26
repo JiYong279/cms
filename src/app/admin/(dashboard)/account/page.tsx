@@ -1,11 +1,13 @@
 import type { Metadata } from "next";
+import { eq } from "drizzle-orm";
 import { ShieldAlert } from "lucide-react";
+import { getDb, schema } from "@/db";
 import { Card } from "@/components/form";
 import { getT } from "@/i18n/server";
 import { requireUser } from "@/lib/auth";
 import { PERMISSIONS, ROLE_BADGE, can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
-import { ChangePasswordForm, ProfileForm } from "./account-forms";
+import { AuthorProfileForm, ChangePasswordForm, ProfileForm } from "./account-forms";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
@@ -17,6 +19,12 @@ export default async function AccountPage({ searchParams }: PageProps<"/admin/ac
   const t = await getT();
   const { weak } = await searchParams;
   const granted = (Object.keys(PERMISSIONS) as Permission[]).filter((p) => can(me.role, p));
+  const db = await getDb();
+  const [author] = await db
+    .select({ jobTitles: schema.users.jobTitles, bios: schema.users.bios })
+    .from(schema.users)
+    .where(eq(schema.users.id, me.id))
+    .limit(1);
 
   return (
     <div className="mx-auto max-w-2xl px-4 py-8 sm:px-8 sm:py-10">
@@ -33,6 +41,16 @@ export default async function AccountPage({ searchParams }: PageProps<"/admin/ac
       <div className="flex flex-col gap-6">
         <Card title={t.users.account.profileCard}>
           <ProfileForm name={me.name} email={me.email} />
+        </Card>
+        <Card title={t.users.account.authorCard}>
+          <AuthorProfileForm
+            profile={{
+              jobTitleVi: author?.jobTitles.vi ?? "",
+              jobTitleEn: author?.jobTitles.en ?? "",
+              bioVi: author?.bios.vi ?? "",
+              bioEn: author?.bios.en ?? "",
+            }}
+          />
         </Card>
         <Card title={t.users.account.roleCard}>
           <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", ROLE_BADGE[me.role])}>

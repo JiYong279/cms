@@ -99,6 +99,8 @@ const SaveInput = z.object({
   focusKeyword: z.string().trim().max(100),
   noindex: z.boolean(),
   scheduledAt: z.iso.datetime().nullable(),
+  /** The date shown on the article and used to order the blog; empty means "when first published". */
+  publishedAt: z.iso.datetime().nullable().optional(),
   categoryId: z.uuid().nullable(),
   featured: z.boolean(),
   coverImageUrl: z.url().nullable().or(z.literal("").transform(() => null)),
@@ -167,8 +169,13 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
     noindex: input.noindex,
     contentHash: contentHash(input.title, input.excerpt, input.contentHtml),
     scheduledAt: input.status === "scheduled" ? new Date(input.scheduledAt!) : null,
+    // Only people who may publish can change the date readers see.
     publishedAt:
-      input.status === "published" ? (existing?.publishedAt ?? new Date()) : (existing?.publishedAt ?? null),
+      input.publishedAt && can(user.role, "posts.publish")
+        ? new Date(input.publishedAt)
+        : input.status === "published"
+          ? (existing?.publishedAt ?? new Date())
+          : (existing?.publishedAt ?? null),
     updatedBy: user.id,
     // Remember the source version as it is now, so a later change to it marks this one stale.
     ...(translatedFrom ? { translatedFromLocale: translatedFrom.locale, translatedFromHash: translatedFrom.contentHash } : {}),

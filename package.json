@@ -14,7 +14,11 @@
     "test:e2e": "tsx tests/e2e/run.mjs",
     "test:browser": "tsx tests/browser/editor.mjs",
     "test:ai": "tsx tests/browser/ai.mjs",
-    "db:copy-to-postgres": "tsx scripts/copy-to-postgres.ts"
+    "db:copy-to-postgres": "tsx scripts/copy-to-postgres.ts",
+    "test:ai-paste": "tsx tests/ai/parse-pasted.test.ts && tsx tests/browser/ai-paste.mjs",
+    "test:seo-score": "tsx tests/seo/score.test.ts && tsx tests/browser/seo-score.mjs",
+    "test:fix-and-users": "tsx tests/browser/fix-and-users.mjs",
+    "test:image-storage": "tsx --env-file=.env.local tests/storage-s3.test.ts && tsx tests/browser/image-storage.mjs"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.128.0",
@@ -32,11 +36,11 @@
     "@tiptap/react": "^3.31.3",
     "@tiptap/starter-kit": "^3.31.3",
     "@tiptap/suggestion": "^3.31.3",
-    "@vercel/blob": "^2.8.0",
     "bcryptjs": "^3.0.3",
     "clsx": "^2.1.1",
     "drizzle-orm": "^0.45.3",
     "lucide-react": "^1.47.0",
+    "marked": "^18.0.14",
     "next": "16.3.6",
     "pg": "^8.23.0",
     "react": "19.2.8",
