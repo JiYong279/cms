@@ -15,6 +15,19 @@ services:
     networks:
       default: {}
       edge: {}
+    # Uploads go to cms-minio. Browsers read them at /media/, which the edge proxy maps read-only onto the
+    # bucket; the app itself only ever uploads, with a user that can do nothing else.
+    environment:
+      S3_BUCKET: cms
+      S3_ENDPOINT: http://cms-minio:9000
+      S3_REGION: us-east-1
+      S3_FORCE_PATH_STYLE: "true"
+      S3_PUBLIC_URL: ${CMS_PUBLIC_URL:?Set CMS_PUBLIC_URL in .env}/media
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID in .env}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY in .env}
+    depends_on:
+      cms-minio-init:
+        condition: service_completed_successfully
 
   # Publishes scheduled articles. Reuses the web image, which already carries wget.
   cms-cron:
@@ -33,6 +46,57 @@ services:
     depends_on:
       cms-web:
         condition: service_healthy
+
+  # Image storage (PGSTY Silo, the maintained fork of the MinIO server; the same release as qubx-backend
+  # on this host). Publishes no port and has no console: cms-web uploads over the stack network, and the
+  # edge proxy reads over "edge". Its root account is in .env.minio, which the app containers never load.
+  cms-minio:
+    image: pgsty/silo:RELEASE.2026-08-06T00-00-00Z
+    restart: unless-stopped
+    command: ["server", "/data"]
+    env_file: .env.minio
+    environment:
+      MINIO_BROWSER: "off"
+    volumes:
+      - cms_minio:/data
+    networks:
+      default: {}
+      edge: {}
+    healthcheck:
+      test: ["CMD-SHELL", "mcli alias set local http://127.0.0.1:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" >/dev/null && mcli ready local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Runs on every deploy and is safe to repeat: the bucket, anonymous read of single files (never
+  # listing), and the app's user, which may only upload into this bucket.
+  cms-minio-init:
+    image: pgsty/silo:RELEASE.2026-08-06T00-00-00Z
+    restart: "no"
+    env_file: .env.minio
+    environment:
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID:?Set S3_ACCESS_KEY_ID in .env}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY:?Set S3_SECRET_ACCESS_KEY in .env}
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        mcli alias set local http://cms-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null
+        mcli mb --ignore-existing local/cms
+        # Not the canned "download" policy: that one also lets anyone list every file in the bucket.
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"AWS":["*"]},"Action":["s3:GetObject"],"Resource":["arn:aws:s3:::cms/*"]}]}' > /tmp/cms-public-read.json
+        mcli anonymous set-json /tmp/cms-public-read.json local/cms
+        printf '%s' '{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["s3:PutObject"],"Resource":["arn:aws:s3:::cms/*"]}]}' > /tmp/cms-upload.json
+        mcli admin policy create local cms-upload /tmp/cms-upload.json
+        mcli admin user add local "$$S3_ACCESS_KEY_ID" "$$S3_SECRET_ACCESS_KEY"
+        # Attaching a policy the user already has succeeds, so this is safe on every deploy too.
+        mcli admin policy attach local cms-upload --user "$$S3_ACCESS_KEY_ID"
+    depends_on:
+      cms-minio:
+        condition: service_healthy
+
+volumes:
+  cms_minio:
 
 networks:
   # Created once per host (docker network create edge); see coauths-infra-edge.

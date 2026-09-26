@@ -9,6 +9,7 @@ import type { Locale, PostStatus } from "@/db/schema";
 import { plural, fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import { STATUS } from "@/lib/posts";
+import { scoreLevel } from "@/lib/seo-score";
 import { cn } from "@/lib/utils";
 import { deletePostsForever, restorePosts, trashPosts, type BulkResult } from "../posts/actions";
 
@@ -21,12 +22,15 @@ export type PostRow = {
   featured: boolean;
   coverImageUrl: string | null;
   author: string | null;
-  locales: { locale: Locale; href: string; status: PostStatus | null; stale: boolean }[];
+  /** `score`: the version's SEO score (0–100), null when it is not written yet. */
+  locales: { locale: Locale; href: string; status: PostStatus | null; stale: boolean; score: number | null }[];
   publicUrl: string | null;
   updatedLabel: string;
   trashedLabel: string | null;
   canDelete: boolean;
 };
+
+const SCORE_COLOR = { good: "text-emerald-600", ok: "text-amber-600", weak: "text-red-500" } as const;
 
 type Props = { rows: PostRow[]; trash: boolean; canPurge: boolean; emptyTitle: string; emptyHint: string };
 type Toast = { text: string; undo?: string[] };
@@ -209,8 +213,18 @@ export function PostTable({ rows, trash, canPurge, emptyTitle, emptyHint }: Prop
                   <td key={l.locale} className="px-3 py-3">
                     {l.status ? (
                       <Link href={l.href} className="inline-flex flex-col items-start gap-1">
-                        <span className={cn("whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium", STATUS[l.status].className)}>
-                          {dict.common.status[l.status]}
+                        <span className="flex items-center gap-2">
+                          <span className={cn("whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium", STATUS[l.status].className)}>
+                            {dict.common.status[l.status]}
+                          </span>
+                          {l.score !== null && (
+                            <span
+                              title={t.seoScore}
+                              className={cn("whitespace-nowrap text-[11px] font-semibold", SCORE_COLOR[scoreLevel(l.score)])}
+                            >
+                              SEO {l.score}
+                            </span>
+                          )}
                         </span>
                         {l.stale && (
                           <span className="flex items-center gap-1 text-[11px] font-medium text-orange-600">

@@ -1,6 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { Locale } from "@/db/schema";
+import { siteBrief } from "./ai-brief";
 
 /**
  * The editor's AI assistant: drafts an article from a topic, or translates one into the other
@@ -79,18 +80,6 @@ export type SiteContext = {
   /** Category names in the language being written, for drafts. */
   categories: string[];
 };
-
-/** What the model should know about each website we publish to. */
-const SITE_BRIEFS: Record<string, string> = {
-  qubx: `Qub-X (qub-x.com) is software for aesthetic clinics and spa chains in Vietnam: scheduling,
-payments, customer and treatment records, an omni-channel inbox (Zalo, Facebook, phone), inventory
-and analytics. Readers are clinic owners and managers. Write practical, specific advice for them;
-mention Qub-X at most once, near the end, and never as a hard sell.`,
-};
-
-function siteBrief(siteId: string, site: SiteContext) {
-  return SITE_BRIEFS[siteId] ?? `The article is published on the blog of ${site.name} (${site.baseUrl}).`;
-}
 
 function glossaryText(site: SiteContext) {
   if (site.glossary.length === 0) return "";

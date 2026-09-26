@@ -1,13 +1,15 @@
 /**
- * Copies everything from the local PGlite database (.data/pglite) to the Postgres server in
+ * Copies the live content of the local PGlite database (.data/pglite) to the Postgres server in
  * DATABASE_URL, and moves the images that live on local disk to the configured image storage
- * (Vercel Blob or S3), rewriting their addresses in the articles.
+ * (S3_*: DigitalOcean Spaces, MinIO…), rewriting their addresses in the articles.
  *
- *   DATABASE_URL=… BLOB_READ_WRITE_TOKEN=… npm run db:copy-to-postgres
+ *   DATABASE_URL=… S3_BUCKET=… (and the other S3_* values) npm run db:copy-to-postgres
  *
  * Stop `npm run dev` first: PGlite opens in one process at a time. The target is migrated first
  * and must not contain articles yet. Sessions and failed sign-ins are not copied: people sign in
- * again. For a dry run against another PGlite folder instead of Postgres, set TARGET_PGLITE_DIR.
+ * again. Only live articles (not the trash), the images they use and the accounts listed in
+ * COPY_USERS (comma-separated emails) are copied; the activity log starts empty. For a dry run
+ * against another PGlite folder instead of Postgres, set TARGET_PGLITE_DIR.
  */
 import { readFile } from "node:fs/promises";
 import path from "node:path";
@@ -89,7 +91,14 @@ async function moveImages(texts: string[]): Promise<Map<string, string>> {
       continue;
     }
     const url = await storeFile(key, body, CONTENT_TYPES[key.split(".").pop()!.toLowerCase()] ?? "application/octet-stream");
-    if (!url) throw new Error("No image storage configured: set BLOB_READ_WRITE_TOKEN (or S3_*) so images leave this computer.");
+    if (!url) {
+      // A dry run may keep the local addresses; a real copy must not leave images behind.
+      if (process.env.TARGET_PGLITE_DIR) {
+        console.log(`  image ${key} would be moved (dry run, no image storage configured)`);
+        continue;
+      }
+      throw new Error("No image storage configured: set S3_* so images leave this computer.");
+    }
     moved.set(address, url);
     console.log(`  image ${key} → ${url}`);
   }
@@ -112,8 +121,42 @@ async function main() {
     const [{ n: existing }] = await target.db.select({ n: count() }).from(schema.posts);
     if (existing > 0) throw new Error(`${target.label} already has ${existing} article(s); refusing to copy over them.`);
 
-    const rows = new Map<Table, Record<string, unknown>[]>();
-    for (const table of TABLES) rows.set(table, (await source.select().from(table)) as Record<string, unknown>[]);
+    type Row = Record<string, unknown>;
+    const all = new Map<Table, Row[]>();
+    for (const table of TABLES) all.set(table, (await source.select().from(table)) as Row[]);
+    const from = (table: Table) => all.get(table)!;
+
+    // Only what belongs on the live site: no test accounts, no trash, no local activity history.
+    const keepEmails = new Set((process.env.COPY_USERS ?? "").split(",").map((e) => e.trim().toLowerCase()).filter(Boolean));
+    const users = from(schema.users).filter((u) => keepEmails.has(String(u.email).toLowerCase()));
+    const userIds = new Set(users.map((u) => u.id));
+    const posts = from(schema.posts).filter((p) => !p.deletedAt);
+    const postIds = new Set(posts.map((p) => p.id));
+    const translations = from(schema.postTranslations).filter((t) => postIds.has(t.postId));
+    const translationIds = new Set(translations.map((t) => t.id));
+    const revisions = from(schema.revisions).filter((r) => translationIds.has(r.translationId));
+    const articleText = JSON.stringify([posts, translations, revisions]);
+
+    const rows = new Map<Table, Row[]>([
+      [schema.sites, from(schema.sites)],
+      [schema.users, users],
+      [schema.categories, from(schema.categories)],
+      [schema.posts, posts],
+      [schema.postTranslations, translations],
+      [schema.revisions, revisions],
+      // Only images the copied articles use.
+      [schema.media, from(schema.media).filter((m) => articleText.includes(String(m.url)))],
+      [schema.slugRedirects, from(schema.slugRedirects).filter((r) => translationIds.has(r.translationId))],
+      [schema.activityLog, []],
+      [schema.glossary, from(schema.glossary)],
+    ]);
+    // Links to accounts that are not copied (authors, editors) are cleared.
+    const userColumns = ["authorId", "deletedBy", "updatedBy", "createdBy", "uploadedBy", "userId"];
+    for (const list of rows.values()) {
+      for (const row of list) for (const c of userColumns) if (c in row && row[c] && !userIds.has(row[c])) row[c] = null;
+    }
+    console.log(`Accounts copied: ${users.map((u) => u.email).join(", ") || "none (set COPY_USERS)"}; skipped ${from(schema.users).length - users.length}.`);
+    console.log(`Articles: ${posts.length} copied, ${from(schema.posts).length - posts.length} in the trash skipped.`);
 
     // Images first, so the copied rows already point at their new addresses.
     const texts = TABLES.flatMap((t) => rows.get(t)!.map((r) => JSON.stringify(r)));

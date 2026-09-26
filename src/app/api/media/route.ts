@@ -1,7 +1,7 @@
 import { getDb, schema } from "@/db";
 import { getT } from "@/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
-import { MAX_UPLOAD_BYTES, isAcceptedImage, saveImage, type SavedImage } from "@/lib/storage";
+import { MAX_UPLOAD_BYTES, StorageError, isAcceptedImage, saveImage, type SavedImage } from "@/lib/storage";
 
 export type UploadResponse =
   | { ok: true; id: string; url: string; width: number; height: number }
@@ -35,7 +35,11 @@ export async function POST(request: Request) {
   let saved;
   try {
     saved = await saveImage(Buffer.from(await file.arrayBuffer()), file.name || "anh", file.type);
-  } catch {
+  } catch (error) {
+    if (error instanceof StorageError) {
+      console.error(error);
+      return fail(t.editor.upload.storageFailed, 503);
+    }
     return fail(t.editor.upload.unreadable, 422);
   }
 

@@ -4,7 +4,37 @@ import { useActionState } from "react";
 import { Field, FormMessage, SubmitButton, inputClass } from "@/components/form";
 import { useI18n } from "@/i18n/client";
 import type { FormState } from "../users/actions";
-import { changePassword, updateProfile } from "./actions";
+import { changePassword, updateAuthorProfile, updateProfile } from "./actions";
+
+export type AuthorProfileValue = { jobTitleVi: string; jobTitleEn: string; bioVi: string; bioEn: string };
+
+/** Job title and short bio per language, published with the person's articles. */
+export function AuthorProfileForm({ profile }: { profile: AuthorProfileValue }) {
+  const { t } = useI18n();
+  const a = t.users.account;
+  const [state, action] = useActionState<FormState, FormData>(updateAuthorProfile, {});
+  return (
+    <form action={action} className="flex flex-col gap-4">
+      <p className="text-sm text-zinc-500">{a.authorHint}</p>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label={a.jobTitleVi}>
+          <input name="jobTitleVi" maxLength={80} defaultValue={profile.jobTitleVi} placeholder={a.jobTitlePlaceholderVi} className={inputClass} />
+        </Field>
+        <Field label={a.jobTitleEn}>
+          <input name="jobTitleEn" maxLength={80} defaultValue={profile.jobTitleEn} placeholder={a.jobTitlePlaceholderEn} className={inputClass} />
+        </Field>
+        <Field label={a.bioVi}>
+          <textarea name="bioVi" rows={3} maxLength={400} defaultValue={profile.bioVi} className={`${inputClass} resize-y`} />
+        </Field>
+        <Field label={a.bioEn}>
+          <textarea name="bioEn" rows={3} maxLength={400} defaultValue={profile.bioEn} className={`${inputClass} resize-y`} />
+        </Field>
+      </div>
+      <FormMessage state={state} />
+      <SubmitButton>{t.common.save}</SubmitButton>
+    </form>
+  );
+}
 
 export function ProfileForm({ name, email }: { name: string; email: string }) {
   const { t } = useI18n();

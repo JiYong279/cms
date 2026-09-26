@@ -44,8 +44,8 @@ const vi = {
   },
   changes: {
     role: "đổi vai trò {from} → {to}",
-    lock: "khoá tài khoản",
-    unlock: "mở khoá tài khoản",
+    lock: "vô hiệu hoá tài khoản",
+    unlock: "kích hoạt lại tài khoản",
     rename: "đổi tên thành {to}",
   },
   historyTitle: "Lịch sử",
@@ -100,8 +100,8 @@ const en: ActivityDict = {
   },
   changes: {
     role: "role {from} → {to}",
-    lock: "account locked",
-    unlock: "account unlocked",
+    lock: "account disabled",
+    unlock: "account enabled again",
     rename: "renamed to {to}",
   },
   historyTitle: "History",

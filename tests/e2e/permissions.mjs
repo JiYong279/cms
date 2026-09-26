@@ -100,7 +100,7 @@ check("editor password restored", has(r, "Đã đổi mật khẩu"), message(r)
 
 // Locking an account signs it out
 r = await admin.submit(`/admin/users/${writerId}`, 'name="active"', { id: writerId, name: WRITER.name, role: "writer" });
-check("admin locks writer", has(r, "Đã khoá tài khoản"), message(r));
+check("admin locks writer", has(r, "Đã vô hiệu hoá tài khoản"), message(r));
 r = await writer.req("/admin");
 check("locked writer is signed out", r.status === 307, r.status);
 r = await new Client().login(WRITER.email, WRITER.password);

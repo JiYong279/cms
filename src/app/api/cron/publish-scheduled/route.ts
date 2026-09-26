@@ -1,8 +1,8 @@
 import { publishDuePosts } from "@/lib/scheduled";
 
 /**
- * Publishes scheduled articles whose time has come. Point a scheduler at it every few
- * minutes (Vercel Cron sends `Authorization: Bearer <CRON_SECRET>` automatically).
+ * Publishes scheduled articles whose time has come. Point a scheduler at it every few minutes
+ * with `Authorization: Bearer <CRON_SECRET>` (on the server, the cms-cron container does this).
  */
 export async function GET(request: Request) {
   const secret = process.env.CRON_SECRET;

@@ -8,6 +8,7 @@ import { getT } from "@/i18n/server";
 import { requireUser } from "@/lib/auth";
 import { PERMISSIONS, ROLES, ROLE_BADGE, can, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import { UserRowActions } from "./user-row-actions";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
@@ -18,13 +19,15 @@ function formatDate(date: Date, locale: string) {
   return new Intl.DateTimeFormat(locale, { dateStyle: "medium" }).format(date);
 }
 
-export default async function UsersPage() {
+export default async function UsersPage({ searchParams }: PageProps<"/admin/users">) {
   const me = await requireUser();
   const t = await getT();
   if (!can(me.role, "users.manage")) return <NoAccess message={t.users.noAccess.list} />;
 
+  // Active accounts, or the disabled ones kept apart (?view=disabled).
+  const disabledView = (await searchParams).view === "disabled";
   const db = await getDb();
-  const users = await db
+  const everyone = await db
     .select({
       id: schema.users.id,
       name: schema.users.name,
@@ -38,6 +41,12 @@ export default async function UsersPage() {
     .leftJoin(schema.posts, eq(schema.posts.authorId, schema.users.id))
     .groupBy(schema.users.id)
     .orderBy(asc(schema.users.createdAt));
+  const users = everyone.filter((u) => u.active !== disabledView);
+  const counts = { active: everyone.filter((u) => u.active).length, disabled: everyone.filter((u) => !u.active).length };
+  const tabs = [
+    { href: "/admin/users", label: t.users.list.tabActive, n: counts.active, current: !disabledView },
+    { href: "/admin/users?view=disabled", label: t.users.list.tabDisabled, n: counts.disabled, current: disabledView },
+  ];
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
@@ -55,7 +64,25 @@ export default async function UsersPage() {
         </Link>
       </header>
 
-      <section className="mt-6 overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
+      <nav aria-label={t.users.list.tabsLabel} className="mt-6 flex gap-1 border-b border-zinc-200">
+        {tabs.map((tab) => (
+          <Link
+            key={tab.href}
+            href={tab.href}
+            aria-current={tab.current ? "page" : undefined}
+            className={cn(
+              "-mb-px flex items-center gap-2 border-b-2 px-3 py-2.5 text-sm font-medium",
+              tab.current ? "border-brand text-ink" : "border-transparent text-zinc-500 hover:text-zinc-800",
+            )}
+          >
+            {tab.label}
+            <span className={cn("rounded-full px-1.5 py-px text-xs", tab.current ? "bg-brand-soft text-brand" : "bg-zinc-100 text-zinc-500")}>{tab.n}</span>
+          </Link>
+        ))}
+      </nav>
+      {disabledView && <p className="mt-4 text-sm text-zinc-500">{t.users.list.disabledNote}</p>}
+
+      <section className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
         <table className="w-full min-w-[640px] text-left text-sm">
           <thead className="border-b border-zinc-200 bg-zinc-50 text-xs uppercase tracking-wide text-zinc-500">
             <tr>
@@ -64,6 +91,7 @@ export default async function UsersPage() {
               <th className="px-4 py-3 font-medium">{t.users.list.colStatus}</th>
               <th className="px-4 py-3 font-medium">{t.users.list.colPosts}</th>
               <th className="px-4 py-3 font-medium">{t.users.list.colCreated}</th>
+              <th className="px-4 py-3 text-right font-medium">{t.users.list.colActions}</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-zinc-100">
@@ -90,8 +118,18 @@ export default async function UsersPage() {
                 </td>
                 <td className="px-4 py-3 text-zinc-600">{u.posts}</td>
                 <td className="whitespace-nowrap px-4 py-3 text-zinc-500">{formatDate(u.createdAt, t.common.dateLocale)}</td>
+                <td className="px-4 py-3 text-right">
+                  {u.id !== me.id && <UserRowActions id={u.id} name={u.name} active={u.active} />}
+                </td>
               </tr>
             ))}
+            {users.length === 0 && (
+              <tr>
+                <td colSpan={6} className="px-4 py-10 text-center text-sm text-zinc-500">
+                  {t.users.list.emptyDisabled}
+                </td>
+              </tr>
+            )}
           </tbody>
         </table>
       </section>

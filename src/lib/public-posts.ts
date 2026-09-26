@@ -37,7 +37,16 @@ export type PublicPost = PublicPostSummary & {
   content: JSONContent;
   html: string;
   toc: { id: string; title: string }[];
+  /** The writer, when they filled in an author profile for this language; otherwise null. */
+  author: { name: string; jobTitle: string; bio: string } | null;
 };
+
+/** Only people who filled in an author profile in this language are named on the website. */
+function publicAuthor(user: { name: string; jobTitles: Partial<Record<Locale, string>>; bios: Partial<Record<Locale, string>> } | null, locale: Locale) {
+  const jobTitle = user?.jobTitles[locale]?.trim() ?? "";
+  const bio = user?.bios[locale]?.trim() ?? "";
+  return user && (jobTitle || bio) ? { name: user.name, jobTitle, bio } : null;
+}
 
 /** Published now, or scheduled for a moment that has passed. */
 function isLive(t: Pick<PostTranslation, "status" | "scheduledAt">, now: Date) {
@@ -82,7 +91,7 @@ async function loadLive(siteId: string, locale: Locale, slug?: string) {
         inArray(t.status, ["published", "scheduled"]),
         slug ? eq(t.slug, slug) : undefined,
       ),
-    with: { post: { with: { category: true } } },
+    with: { post: { with: { category: true, author: { columns: { name: true, jobTitles: true, bios: true } } } } },
   });
   // Trashed articles disappear from the websites until restored.
   const live = rows.filter((t) => isLive(t, now) && !t.post.deletedAt);
@@ -154,6 +163,7 @@ export async function getPublicPost(siteId: string, locale: Locale, slug: string
     noindex: t.noindex,
     content,
     html: t.contentHtml,
+    author: publicAuthor(t.post.author, locale),
     toc,
   };
 }

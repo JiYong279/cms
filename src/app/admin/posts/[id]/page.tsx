@@ -37,6 +37,15 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
   const { locale: localeParam } = await searchParams;
   const locale: Locale = LOCALES.find((l) => l === localeParam) ?? post.site.defaultLocale;
   const translation = post.translations.find((tr) => tr.locale === locale) ?? null;
+  // Counted by the SEO score: articles by an author with a public profile show a real byline.
+  const [author] = post.authorId
+    ? await db
+        .select({ jobTitles: schema.users.jobTitles, bios: schema.users.bios })
+        .from(schema.users)
+        .where(eq(schema.users.id, post.authorId))
+        .limit(1)
+    : [];
+  const authorHasProfile = !!(author?.jobTitles[locale]?.trim() || author?.bios[locale]?.trim());
 
   // Who moved it to the trash, and the latest activity, for the editor sidebar.
   const trashedBy = post.deletedBy
@@ -92,6 +101,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
       locked={!canEditTranslation(user, translation?.status ?? null)}
       canDelete={canDeletePost(user, post, post.translations.map((tr) => tr.status))}
       aiEnabled={aiConfigured()}
+      authorHasProfile={authorHasProfile}
       trashed={post.deletedAt ? { at: post.deletedAt, by: trashedBy ?? null } : null}
       history={history.map((h) => ({
         at: h.at,

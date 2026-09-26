@@ -30,6 +30,8 @@ const DraftInput = z.object({
   length: z.enum(Object.keys(DRAFT_LENGTHS) as [keyof typeof DRAFT_LENGTHS]),
 });
 
+const SourceInput = z.object({ postId: z.uuid(), from: localeSchema });
+
 const TranslateInput = z.object({
   postId: z.uuid(),
   from: localeSchema,
@@ -158,4 +160,38 @@ export async function aiTranslate(raw: z.input<typeof TranslateInput>): Promise<
   } catch (error) {
     return failure(error, t);
   }
+}
+
+export type SourceResult =
+  | { ok: true; source: { title: string; excerpt: string; metaTitle: string; metaDescription: string; focusKeyword: string; html: string } }
+  | { ok: false; error: string };
+
+/** The saved `from` version, put into the translation prompt people copy into their own assistant. */
+export async function aiSourceArticle(raw: z.input<typeof SourceInput>): Promise<SourceResult> {
+  const user = await requireUser();
+  const t = await getT();
+  const parsed = SourceInput.safeParse(raw);
+  if (!parsed.success) return { ok: false, error: t.posts.errors.invalid };
+  const db = await getDb();
+  const post = await db.query.posts.findFirst({
+    where: (p, { eq }) => eq(p.id, parsed.data.postId),
+    with: { translations: true },
+  });
+  if (!post || post.deletedAt) return { ok: false, error: t.posts.errors.notFound };
+  if (!canEditPost(user, post)) return { ok: false, error: t.posts.errors.notAllowedEdit };
+  const s = post.translations.find((tr) => tr.locale === parsed.data.from);
+  if (!s || !s.title.trim() || !s.contentHtml.trim()) {
+    return { ok: false, error: fmt(t.editor.ai.errors.noSource, { language: t.common.locales[parsed.data.from] }) };
+  }
+  return {
+    ok: true,
+    source: {
+      title: s.title,
+      excerpt: s.excerpt,
+      metaTitle: s.metaTitle,
+      metaDescription: s.metaDescription,
+      focusKeyword: s.focusKeyword,
+      html: s.contentHtml,
+    },
+  };
 }
