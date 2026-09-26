@@ -40,6 +40,17 @@ jobs:
       - run: npm run lint
       # Also type-checks: next build runs TypeScript and fails on errors.
       - run: npm run build
+      # The notify job only runs after a deploy, so compile its message here with the runner's jq: a
+      # syntax error then fails the PR instead of the notification (jq 1.8 accepts what 1.7 rejects).
+      - name: Discord payload builds
+        run: |
+          jq -n -f .github/scripts/discord-payload.jq \
+            --argjson jobs '[{"name":"Lint and build","conclusion":"failure","started_at":"2026-01-01T00:00:00Z","completed_at":"2026-01-01T00:01:05Z","steps":[{"name":"Run npm run lint","conclusion":"failure"}]}]' \
+            --argjson commits '[{"id":"0123456789abcdef","url":"https://example.test/c","message":"fix: `quote` and \"double\" quotes\nbody"}]' \
+            --arg check failure --arg deploy skipped --arg repo o/r --arg server https://example.test \
+            --arg branch dev --arg sha 0123456789abcdef --arg event push --arg actor a \
+            --arg run_number 1 --arg run_attempt 1 --arg run_url https://example.test/run \
+            --arg compare https://example.test/compare/a...b --arg site https://example.test > /dev/null
 
   # The server's address, login and host key live only in GitHub secrets, which are masked in logs:
   # STAGING_SSH_HOST, STAGING_SSH_USER, STAGING_SSH_KNOWN_HOSTS and STAGING_SSH_KEY. The "staging"
