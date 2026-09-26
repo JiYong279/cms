@@ -114,7 +114,10 @@ try {
   await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click('nav[aria-label="Ngôn ngữ"] a[href$="locale=en"]')]);
   await page.waitForSelector(".ProseMirror");
   const submitTranslate = await runAi("Dịch từ bản Tiếng Việt");
-  expect("an empty English version opens the dialog on 'Translate'", await page.$eval('[role="dialog"]', (d) => d.querySelector('input[name="aiMode"]:checked')?.closest("label")?.innerText.includes("Dịch từ bản Tiếng Việt")));
+  expect(
+    "an empty English version opens the dialog on translating from Vietnamese",
+    await page.$eval('[role="dialog"]', (d) => d.querySelector('input[name="aiMode"]:checked')?.closest("label")?.innerText.includes("Dịch bài") && d.querySelector('[data-direction="into"]')?.getAttribute("aria-checked") === "true"),
+  );
   await shot(page, "ai-03-translate-dialog");
   await submitTranslate();
   state = await editorState();
