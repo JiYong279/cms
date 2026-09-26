@@ -1,5 +1,5 @@
 // Reads chat-assistant answers the way the editor's "paste from AI" does:  npx tsx tests/ai/parse-pasted.test.ts
-import { draftPrompt, parsePastedArticle } from "../../src/lib/ai-paste";
+import { draftPrompt, parsePastedArticle, translatePrompt } from "../../src/lib/ai-paste";
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = "") => {
@@ -81,6 +81,18 @@ const prompt = draftPrompt({
 });
 check("the prompt lists the categories and the format", prompt.includes("Vận hành phòng khám | Hồ sơ bệnh án điện tử (EMR)") && prompt.includes("metaDescription:") && prompt.includes("> [!TIP]"));
 check("the prompt leaves out empty options", !prompt.includes("Các ý cần có") && !prompt.includes("Từ khoá chính:"));
+
+// Pasting the prompt itself instead of the AI answer must not fill the article with the template.
+const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
+const source = { title: "Chọn phần mềm spa", excerpt: "Tóm tắt.", metaTitle: "", metaDescription: "", focusKeyword: "", html: "<h2>Mục</h2><p>Nội dung.</p>" };
+for (const [label, text] of [
+  ["draft prompt (vi)", prompt],
+  ["translate prompt (vi to en)", translatePrompt({ site, from: "vi", to: "en", source })],
+  ["translate prompt (en to vi)", translatePrompt({ site, from: "en", to: "vi", source })],
+] as const) {
+  const pasted = parsePastedArticle(text, categories);
+  check(`pasting the ${label} itself is recognised as the prompt`, !pasted.ok && pasted.error === "isPrompt", JSON.stringify(pasted).slice(0, 120));
+}
 
 console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
 process.exit(failures ? 1 : 0);

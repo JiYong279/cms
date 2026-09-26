@@ -88,8 +88,10 @@ const vi = {
       empty: "Chưa có nội dung.",
       noTitle: "Chưa thấy tiêu đề: hãy dán cả phần đầu (--- title: …) hoặc dòng # Tiêu đề.",
       noBody: "Chưa thấy nội dung bài sau phần tiêu đề.",
+      isPrompt: "Đây là câu lệnh, chưa phải bài của Claude. Hãy dán câu lệnh vào Claude và gửi đi, đợi Claude viết xong, bấm nút Copy ngay dưới câu trả lời rồi dán vào đây.",
     },
     fill: "Điền vào bài",
+    openClaude: "Mở Claude",
     errors: {
       not_configured: "AI chưa được bật: quản trị viên cần đặt ANTHROPIC_API_KEY cho CMS.",
       too_long: "Bài quá dài để AI viết một lần. Hãy chọn độ dài ngắn hơn.",
@@ -430,8 +432,10 @@ const en: EditorDict = {
       empty: "Nothing pasted yet.",
       noTitle: "No title found: paste the top part too (--- title: …) or a # Title line.",
       noBody: "No article text found after the title.",
+      isPrompt: "This is the prompt, not Claude's article yet. Paste the prompt into Claude and send it, wait for the answer, press Copy under it, then paste that here.",
     },
     fill: "Fill in the article",
+    openClaude: "Open Claude",
     errors: {
       not_configured: "AI is not switched on: an admin needs to set ANTHROPIC_API_KEY for the CMS.",
       too_long: "The article is too long for the AI to write in one go. Choose a shorter length.",

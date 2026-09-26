@@ -1455,6 +1455,15 @@ function AiDialog({
                   {running ? <Loader2 className="size-4 animate-spin" /> : <Copy className="size-4" />}
                   {a.copyPrompt}
                 </button>
+                <a
+                  href="https://claude.ai/new"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:text-brand-hover"
+                >
+                  {a.openClaude}
+                  <ExternalLink className="size-3.5" />
+                </a>
                 {copied === "yes" && (
                   <span role="status" className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
                     <Check className="size-3.5" />
