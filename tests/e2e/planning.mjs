@@ -57,6 +57,23 @@ try {
   await admin.call("/admin", "trashPosts", [[trashedId]]);
   r = await plan(admin, { postId: trashedId, plannedFor: "2031-03-12" });
   check("an article in the trash cannot be planned", r.ok === false && /thùng rác/.test(r.error), JSON.stringify(r));
+
+  // "Plan with AI": the kept ideas become drafts on their days, each starting with its outline.
+  const idea = (n, day) => ({ title: `Bài kế hoạch thử ${n}`, focusKeyword: `từ khoá ${n}`, categoryId: null, plannedFor: day, why: "Chủ spa đang tìm <cách> làm.", outline: ["Mục kế hoạch A", "Mục kế hoạch B"] });
+  const plan2 = (client, ideas) => client.call("/admin/calendar", "createPlannedPosts", [{ siteId: "qubx", locale: "vi", ideas }]);
+  r = await plan2(writer, [idea(1, "2031-05-05"), idea(2, "2031-05-07")]);
+  check("a writer turns planned ideas into drafts", r.ok === true && r.ids?.length === 2, JSON.stringify(r).slice(0, 200));
+  if (r.ok) created.push(...r.ids);
+  if (r.ok) {
+    check("each draft sits on its planned day", (await dayOnCalendar(writer, r.ids[0], "month=2031-05")) === "2031-05-05" && (await dayOnCalendar(writer, r.ids[1], "month=2031-05")) === "2031-05-07");
+    const editorHtml = (await writer.req(`/admin/posts/${r.ids[0]}?locale=vi`)).text;
+    // The editor gets the body as JSON; escaping of its HTML is checked in tests/seo/plan.test.ts.
+    check("a planned draft opens with its title, outline and why it matters", editorHtml.includes("Bài kế hoạch thử 1") && editorHtml.includes("Mục kế hoạch A") && editorHtml.includes("Chủ spa đang tìm"));
+  }
+  r = await plan2(admin, [{ ...idea(3, "2031-05-08"), categoryId: "00000000-0000-4000-8000-000000000000" }]);
+  check("a category of another website is refused", r.ok === false, JSON.stringify(r));
+  r = await plan2(admin, Array.from({ length: 31 }, (_, n) => idea(n, "2031-05-08")));
+  check("more than 30 ideas at once are refused", r.ok === false, JSON.stringify(r));
 } finally {
   await destroyPosts(admin, created);
 }

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { JSONContent } from "@tiptap/react";
+import type { Editor, JSONContent } from "@tiptap/react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -39,11 +39,14 @@ import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
 import { FIX_FOR, fieldsFor, type FixField } from "@/lib/seo-fix";
+import { carryImageCredits, countUnknownImages, permitUnknownImages, permitUnknownImagesInHtml } from "@/lib/image-rights";
+import { countImageSuggestions } from "@/lib/image-suggestions";
 import { imageFiles, uploadImage } from "@/lib/upload-client";
 import { cn } from "@/lib/utils";
 import { markTranslationSynced, restorePosts, savePost, trashPostAndLeave } from "../actions";
 import { aiDraft, aiSourceArticle, aiTranslate } from "../ai-actions";
 import { RichTextEditor } from "./rich-text-editor";
+import { permitUnknownImagesIn } from "./editor/extensions";
 import { Field, Section, inputClass } from "./editor/panel";
 import { PlanningFields } from "./editor/planning-fields";
 import { SeoFixDialog } from "./editor/seo-fix-dialog";
@@ -82,6 +85,8 @@ type Props = {
 };
 
 const PLACEHOLDER_SLUG = /^bai-viet-[0-9a-f]{8}$/;
+/** Below this many words the body is just an outline (a planned draft), not an article yet. */
+const OUTLINE_ONLY_WORDS = 150;
 
 function toLocalInput(date: Date | null) {
   if (!date) return "";
@@ -167,6 +172,7 @@ export function PostEditor({
   const [categoryId, setCategoryId] = useState(post.categoryId ?? "");
   const [featured, setFeatured] = useState(post.featured);
   const [coverImageUrl, setCoverImageUrl] = useState(post.coverImageUrl ?? "");
+  const [coverImageAlt, setCoverImageAlt] = useState(translation?.coverImageAlt ?? "");
 
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(translation?.updatedAt ?? null);
@@ -180,6 +186,8 @@ export function PostEditor({
   const backHref = useReturnTo("/admin");
   // "Fix with AI" from the SEO score: the fields it opens with, while open.
   const [seoFix, setSeoFix] = useState<FixField[] | null>(null);
+  // The editor itself, to mark images confirmed at publishing as allowed.
+  const editorRef = useRef<Editor | null>(null);
   const [replacement, setReplacement] = useState<{ html: string; version: number } | null>(null);
   // The locale the current content was machine-translated from, until it is saved.
   const [translatedFrom, setTranslatedFrom] = useState<Locale | null>(null);
@@ -200,8 +208,11 @@ export function PostEditor({
 
   const effectiveSlug = slugTouched ? slug : slugify(title);
 
-  /** Saves the form; `next` also moves the article to that status (the header's publish buttons). */
-  const save = useCallback((next?: { status: PostStatus; scheduledAt?: string }) => {
+  /**
+   * Saves the form; `next` also moves the article to that status (the header's publish buttons), and
+   * `confirmImages` records that the editor checked the images whose rights were unknown.
+   */
+  const save = useCallback((next?: { status: PostStatus; scheduledAt?: string; confirmImages?: boolean }) => {
     const nextStatus = next?.status ?? status;
     const nextSchedule = next?.scheduledAt ?? scheduledAt;
     setError(null);
@@ -214,8 +225,9 @@ export function PostEditor({
         title,
         slug: effectiveSlug,
         excerpt,
-        contentJson: content.json,
-        contentHtml: content.html,
+        contentJson: next?.confirmImages ? permitUnknownImages(content.json) : content.json,
+        contentHtml: next?.confirmImages ? permitUnknownImagesInHtml(content.html) : content.html,
+        imagesConfirmed: next?.confirmImages ? countUnknownImages(content.html) : 0,
         metaTitle,
         metaDescription,
         focusKeyword,
@@ -225,6 +237,7 @@ export function PostEditor({
         categoryId: categoryId || null,
         featured,
         coverImageUrl: coverImageUrl.trim(),
+        coverImageAlt,
         translatedFrom,
       });
       if (!result.ok) {
@@ -235,6 +248,8 @@ export function PostEditor({
       setSlug(result.slug);
       setSlugTouched(true);
       setSavedAt(new Date(result.savedAt));
+      if (next?.confirmImages && editorRef.current) permitUnknownImagesIn(editorRef.current);
+      // Marking them in the editor counts as an edit; what it shows is exactly what was saved.
       setDirty(false);
       setTranslatedFrom(null);
       if (afterSave.current) {
@@ -276,6 +291,7 @@ export function PostEditor({
     categoryId,
     featured,
     coverImageUrl,
+    coverImageAlt,
     translatedFrom,
   ]);
 
@@ -350,6 +366,7 @@ export function PostEditor({
   function goToCheck(id: CheckId) {
     // An image still missing its description: select it, which opens its description box.
     if (id === "imagesAlt") {
+      if (coverImageUrl.trim() && !coverImageAlt.trim()) return goTo("field-cover-alt");
       const image = document.querySelector<HTMLElement>('.ProseMirror img:not([alt]), .ProseMirror img[alt=""]');
       if (image) {
         image.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -387,6 +404,7 @@ export function PostEditor({
     html: content.html,
     categoryId: categoryId || null,
     coverImageUrl: coverImageUrl.trim() || null,
+    coverImageAlt,
     authorHasProfile,
     translationInSync: !!otherVersion?.status && !otherVersion.stale && !locales.find((tab) => tab.locale === locale)?.stale,
     siteHost: new URL(site.baseUrl).host,
@@ -398,7 +416,7 @@ export function PostEditor({
   return (
     <div className="flex h-dvh flex-col bg-white">
       {/* ---------- Top bar ---------- */}
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 sm:px-4">
+      <header className="flex h-14 shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3 sm:gap-2 sm:px-4">
         <Link
           href={backHref}
           onClick={confirmLeave}
@@ -407,12 +425,12 @@ export function PostEditor({
         >
           <ArrowLeft className="size-4" />
         </Link>
-        <div className="hidden min-w-0 sm:block">
+        <div className="hidden min-w-0 flex-1 sm:block">
           <p className="truncate text-sm font-medium">{title || t.editor.header.untitled}</p>
           <p className="text-xs text-zinc-500">{site.name}</p>
         </div>
 
-        <nav className="ml-2 flex shrink-0 rounded-lg bg-zinc-100 p-0.5" aria-label={t.editor.header.languages}>
+        <nav className="ml-1 flex shrink-0 rounded-lg bg-zinc-100 p-0.5 sm:ml-2" aria-label={t.editor.header.languages}>
           {locales.map((tab) => (
             <Link
               key={tab.locale}
@@ -435,7 +453,7 @@ export function PostEditor({
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <span className="hidden items-center gap-1.5 text-xs text-zinc-500 md:flex" suppressHydrationWarning>
             {saving ? (
               <>
@@ -456,7 +474,7 @@ export function PostEditor({
             onClick={() => goTo("seo-score")}
             title={t.editor.score.badgeTitle}
             data-seo-badge={seoScore.score}
-            className={cn("rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset", BADGE_COLOR[seoScore.level])}
+            className={cn("shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ring-1 ring-inset sm:px-2.5", BADGE_COLOR[seoScore.level])}
           >
             SEO {seoScore.score}
           </button>
@@ -480,16 +498,17 @@ export function PostEditor({
             onClick={() => setAiOpen(true)}
             disabled={saving || locked}
             title={t.editor.ai.buttonTitle}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-brand-light hover:text-brand disabled:opacity-50"
+            aria-label={t.editor.ai.buttonTitle}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-2 text-sm font-medium text-zinc-700 hover:border-brand-light hover:text-brand disabled:opacity-50 sm:px-3"
           >
             <Sparkles className="size-4" />
-            {t.editor.ai.button}
+            <span className="hidden sm:inline">{t.editor.ai.button}</span>
           </button>
           <button
             type="button"
             onClick={togglePanel}
             title={t.editor.header.settings}
-            className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+            className="shrink-0 rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
           >
             {panelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
           </button>
@@ -511,7 +530,7 @@ export function PostEditor({
                 onClick={() => save()}
                 disabled={saving || locked}
                 title={t.editor.header.saveTitle}
-                className="rounded-lg border border-zinc-200 px-3.5 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
+                className="shrink-0 whitespace-nowrap rounded-lg border border-zinc-200 px-2.5 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50 sm:px-3.5"
               >
                 {t.common.save}
               </button>
@@ -521,10 +540,11 @@ export function PostEditor({
                   onClick={() => setPublishOpen(true)}
                   disabled={saving || locked}
                   title={t.editor.publishing.publishTitle}
+                  aria-label={t.editor.publishing.publish}
                   className={primaryButton}
                 >
                   {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  {t.editor.publishing.publish}
+                  <span className="hidden sm:inline">{t.editor.publishing.publish}</span>
                 </button>
               ) : (
                 <button
@@ -532,10 +552,11 @@ export function PostEditor({
                   onClick={() => save({ status: "in_review" })}
                   disabled={saving || locked}
                   title={t.editor.publishing.submitTitle}
+                  aria-label={t.editor.publishing.submit}
                   className={primaryButton}
                 >
                   {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  {t.editor.publishing.submit}
+                  <span className="hidden sm:inline">{t.editor.publishing.submit}</span>
                 </button>
               )}
             </>
@@ -641,6 +662,23 @@ export function PostEditor({
                 onChange={edit(setCoverImageUrl)}
                 onError={setError}
               />
+              {coverImageUrl.trim() && (
+                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                  <span className="shrink-0 font-medium">{fmt(t.editor.cover.altLabel, { language: t.common.locales[locale] })}</span>
+                  <input
+                    id="field-cover-alt"
+                    value={coverImageAlt}
+                    onChange={(e) => edit(setCoverImageAlt)(e.target.value)}
+                    placeholder={t.editor.cover.altPlaceholder}
+                    disabled={locked}
+                    maxLength={300}
+                    className={cn(
+                      "min-w-0 flex-1 rounded-md border px-2.5 py-1.5 text-sm text-zinc-700 outline-none focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/20",
+                      coverImageAlt.trim() ? "border-zinc-200 bg-white" : "border-amber-300 bg-amber-50/60",
+                    )}
+                  />
+                </label>
+              )}
             </div>
             <hr className="my-8 border-line" />
 
@@ -648,6 +686,8 @@ export function PostEditor({
               <RichTextEditor
                 content={content.json}
                 replacement={replacement}
+                editorRef={editorRef}
+                locale={locale}
                 onChange={edit(setContent)}
                 siteId={site.id}
                 onError={setError}
@@ -904,6 +944,9 @@ export function PostEditor({
           hasContent={!!title.trim() || countWords(content.html) > 0}
           dirty={dirty}
           initialKeyword={focusKeyword}
+          // A planned draft holds only its outline: start the draft from its title and headings.
+          initialTopic={countWords(content.html) < OUTLINE_ONLY_WORDS ? title : ""}
+          initialKeyPoints={countWords(content.html) < OUTLINE_ONLY_WORDS ? outline.filter(Boolean).join("\n") : ""}
           initialMode={openAi}
           initialEngine={aiEngine}
           onTranslateOut={translateOut}
@@ -933,6 +976,8 @@ export function PostEditor({
           language={t.common.locales[locale]}
           url={publicUrl}
           seoScore={seoScore.score}
+          unknownImages={countUnknownImages(content.html)}
+          suggestionsLeft={countImageSuggestions(content.html)}
           otherUnpublished={otherUnpublished.map((tab) =>
             fmt(t.editor.publishing.otherUnpublished, {
               language: t.common.locales[tab.locale],
@@ -941,9 +986,9 @@ export function PostEditor({
           )}
           initialWhen={scheduledAt}
           onCancel={() => setPublishOpen(false)}
-          onConfirm={(when) => {
+          onConfirm={(when, confirmImages) => {
             setPublishOpen(false);
-            save(when ? { status: "scheduled", scheduledAt: when } : { status: "published" });
+            save(when ? { status: "scheduled", scheduledAt: when, confirmImages } : { status: "published", confirmImages });
           }}
         />
       )}
@@ -991,7 +1036,7 @@ export function PostEditor({
 /* ---------- Pieces ---------- */
 
 const primaryButton =
-  "inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover disabled:opacity-50";
+  "inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-hover disabled:opacity-50 sm:px-4";
 
 /** An hour from now, on the hour, as a datetime-local value. */
 function nextHour() {
@@ -1007,6 +1052,8 @@ function PublishDialog({
   url,
   otherUnpublished,
   seoScore,
+  unknownImages,
+  suggestionsLeft,
   initialWhen,
   onCancel,
   onConfirm,
@@ -1016,16 +1063,21 @@ function PublishDialog({
   url: string;
   otherUnpublished: string[];
   seoScore: number;
+  /** Images nobody has confirmed may be used: publishing needs the editor to confirm them. */
+  unknownImages: number;
+  /** Image suggestions still in the article (never published). */
+  suggestionsLeft: number;
   initialWhen: string;
   onCancel: () => void;
   /** `when` is a datetime-local value when scheduling, null to publish now. */
-  onConfirm: (when: string | null) => void;
+  onConfirm: (when: string | null, confirmImages: boolean) => void;
 }) {
   const { t } = useI18n();
   const p = t.editor.publishing;
   const titleId = useId();
   const [later, setLater] = useState(false);
   const [when, setWhen] = useState(initialWhen);
+  const [imagesChecked, setImagesChecked] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
@@ -1044,7 +1096,7 @@ function PublishDialog({
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          onConfirm(later ? when : null);
+          onConfirm(later ? when : null, unknownImages > 0 && imagesChecked);
         }}
         role="dialog"
         aria-modal="true"
@@ -1068,7 +1120,7 @@ function PublishDialog({
           </button>
         </div>
 
-        <fieldset className="mt-5 grid grid-cols-2 gap-2">
+        <fieldset className="mt-5 grid min-w-0 grid-cols-2 gap-2">
           {options.map((option) => (
             <label
               key={option.label}
@@ -1122,6 +1174,26 @@ function PublishDialog({
           </p>
         )}
 
+        {suggestionsLeft > 0 && (
+          <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700" data-suggestions-left>
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            {fmt(p.suggestionsLeft, { n: suggestionsLeft })}
+          </p>
+        )}
+
+        {unknownImages > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800" data-unknown-images>
+            <p className="flex items-start gap-2 font-medium">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              {fmt(p.unknownImages, { n: unknownImages })}
+            </p>
+            <label className="mt-2 flex cursor-pointer items-start gap-2">
+              <input type="checkbox" checked={imagesChecked} onChange={(e) => setImagesChecked(e.target.checked)} className="mt-0.5 size-3.5 accent-brand" />
+              <span>{p.confirmImages}</span>
+            </label>
+          </div>
+        )}
+
         {otherUnpublished.map((text) => (
           <p key={text} className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -1133,7 +1205,7 @@ function PublishDialog({
           <button type="button" onClick={onCancel} className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100">
             {t.common.cancel}
           </button>
-          <button type="submit" disabled={later && !when} className={primaryButton}>
+          <button type="submit" disabled={(later && !when) || (unknownImages > 0 && !imagesChecked)} className={primaryButton}>
             {later ? p.confirmLater : p.now}
           </button>
         </div>
@@ -1162,6 +1234,8 @@ function AiDialog({
   hasContent,
   dirty,
   initialKeyword,
+  initialTopic,
+  initialKeyPoints,
   initialMode,
   initialEngine,
   onTranslateOut,
@@ -1179,6 +1253,8 @@ function AiDialog({
   /** This version has changes not saved yet (translating it out saves them first). */
   dirty: boolean;
   initialKeyword: string;
+  initialTopic: string;
+  initialKeyPoints: string;
   initialMode: "translate" | null;
   initialEngine: "own" | "builtin" | null;
   /** Translate this version into `target`: done in that language's editor, which this opens. */
@@ -1198,8 +1274,8 @@ function AiDialog({
   const [mode, setMode] = useState<"draft" | "translate">(initialMode ?? (canTranslate && !hasContent ? "translate" : "draft"));
   // A version with content is most likely the one to translate; an empty one waits for the other.
   const [direction, setDirection] = useState<"into" | "out">(!initialMode && canTranslateOut ? "out" : "into");
-  const [topic, setTopic] = useState("");
-  const [keyPoints, setKeyPoints] = useState("");
+  const [topic, setTopic] = useState(initialTopic);
+  const [keyPoints, setKeyPoints] = useState(initialKeyPoints);
   const [keyword, setKeyword] = useState(initialKeyword);
   const [length, setLength] = useState<DraftLength>("medium");
   const [error, setError] = useState<string | null>(null);
@@ -1209,6 +1285,8 @@ function AiDialog({
   const [prompt, setPrompt] = useState("");
   const [copied, setCopied] = useState<"yes" | "manual" | null>(null);
   const [pasted, setPasted] = useState("");
+  // The source version the translation prompt carried: its images' rights and credits go back on the pasted ones.
+  const [sourceHtml, setSourceHtml] = useState("");
 
   useEffect(() => {
     if (!running) return;
@@ -1266,6 +1344,7 @@ function AiDialog({
           return;
         }
         text = translatePrompt({ site, from, to: locale, source: result.source });
+        setSourceHtml(result.source.html);
       } else {
         text = draftPrompt({ site, locale, topic, keyPoints, focusKeyword: keyword, words: DRAFT_WORDS[length], categories });
       }
@@ -1290,7 +1369,7 @@ function AiDialog({
         metaTitle: p.metaTitle,
         metaDescription: p.metaDescription,
         focusKeyword: p.focusKeyword,
-        html: p.html,
+        html: from ? carryImageCredits(p.html, sourceHtml) : p.html,
         // Articles share one category across languages, so a translation leaves it alone.
         categoryId: from ? null : p.categoryId,
       },
@@ -1359,7 +1438,7 @@ function AiDialog({
         </div>
         <p className="mt-2 text-xs text-zinc-500">{engine === "own" ? a.engineOwnHint : enabled ? a.engineBuiltinHint : a.errors.not_configured}</p>
 
-        <fieldset disabled={running} className="mt-4 grid grid-cols-2 gap-2">
+        <fieldset disabled={running} className="mt-4 grid min-w-0 grid-cols-2 gap-2">
           {options.map((option) => (
             <label
               key={option.mode}
@@ -1390,7 +1469,7 @@ function AiDialog({
           ))}
         </fieldset>
 
-        <fieldset disabled={running} className="mt-4 flex flex-col gap-3">
+        <fieldset disabled={running} className="mt-4 flex min-w-0 flex-col gap-3">
           {mode === "translate" && source && (
             <div role="radiogroup" aria-label={a.direction} className="grid grid-cols-2 gap-2">
               {(

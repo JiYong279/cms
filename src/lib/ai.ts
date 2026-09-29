@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Locale } from "@/db/schema";
 import { siteBrief } from "./ai-brief";
 import { SOURCE_RULES_NO_BROWSING } from "./ai-sources";
+import { MAX_PLAN_ARTICLES, contentPlanPrompt, type PlanIdea } from "./content-plan";
 import { seoFixPrompt, type AiField, type FixArticle } from "./seo-fix";
 
 /**
@@ -73,7 +74,10 @@ const BODY_HTML_RULES = `HTML rules for the article body:
   <table> with <tr>, <th>, <td>, and callouts written as <div data-callout data-variant="info|success|warning"><p>…</p></div>.
 - Every section starts with an <h2>; the website builds the table of contents from them. Do not repeat the title as a heading.
 - Put <p> inside every <li>, <th>, <td> and callout.
-- No classes, inline styles, images, scripts or Markdown.`;
+- Where a picture would help, add an image suggestion instead of an image (2–4 per article):
+  <div data-image-suggestion data-alt="description for screen readers" data-caption="short caption">what the image should show</div>.
+  Prefer real photos at the clinic or spa, software screens or diagrams; never before/after treatment photos.
+- No <img>, classes, inline styles, scripts or Markdown.`;
 
 export type SiteContext = {
   name: string;
@@ -238,3 +242,85 @@ export async function fixSeoFields(input: {
     explain(error);
   }
 }
+
+/**
+ * Proposes a cluster of articles around a topic ("Plan with AI" on the calendar). The team keeps
+ * what it wants; each kept idea becomes a draft on its planned day.
+ */
+export async function proposeContentPlan(input: {
+  siteId: string;
+  site: SiteContext;
+  locale: Locale;
+  topic: string;
+  count: number;
+  existing: string[];
+}): Promise<PlanIdea[]> {
+  if (!aiConfigured()) throw new AiError("not_configured");
+  const categories = input.site.categories;
+  const tool: Anthropic.Tool = {
+    name: "content_plan",
+    description: "Returns the planned articles, the overview first.",
+    input_schema: {
+      type: "object",
+      properties: {
+        ideas: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              title: { type: "string" },
+              keyword: { type: "string" },
+              ...(categories.length ? { category: { type: "string", enum: categories } } : {}),
+              pillar: { type: "boolean" },
+              why: { type: "string" },
+              outline: { type: "array", items: { type: "string" } },
+            },
+            required: ["title", "keyword", "pillar", "why", "outline", ...(categories.length ? ["category"] : [])],
+          },
+        },
+      },
+      required: ["ideas"],
+    },
+  };
+  const prompt = contentPlanPrompt({
+    site: { id: input.siteId, name: input.site.name, baseUrl: input.site.baseUrl },
+    locale: input.locale,
+    topic: input.topic,
+    count: input.count,
+    categories,
+    existing: input.existing,
+    answer: "tool",
+  });
+  try {
+    const message = await new Anthropic().messages.create({
+      model: MODEL,
+      max_tokens: 8_000,
+      tools: [tool],
+      tool_choice: { type: "tool", name: tool.name },
+      messages: [{ role: "user", content: prompt }],
+    });
+    if (message.stop_reason === "max_tokens") throw new AiError("too_long");
+    const block = message.content.find((b) => b.type === "tool_use");
+    const parsed = PlanSchema.safeParse(block?.type === "tool_use" ? block.input : null);
+    if (!parsed.success) throw new AiError("bad_answer");
+    return parsed.data.ideas.map((i) => ({ title: i.title, focusKeyword: i.keyword, category: i.category ?? "", pillar: i.pillar, why: i.why, outline: i.outline }));
+  } catch (error) {
+    explain(error);
+  }
+}
+
+const PlanSchema = z.object({
+  ideas: z
+    .array(
+      z.object({
+        title: z.string().trim().min(1).max(200),
+        keyword: z.string().trim().max(100),
+        category: z.string().trim().optional(),
+        pillar: z.boolean(),
+        why: z.string().trim().max(500),
+        outline: z.array(z.string().trim().max(200)).max(12),
+      }),
+    )
+    .min(1)
+    .max(MAX_PLAN_ARTICLES),
+});

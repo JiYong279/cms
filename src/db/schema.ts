@@ -153,6 +153,8 @@ export const postTranslations = pgTable(
     metaDescription: text("meta_description").notNull().default(""),
     focusKeyword: text("focus_keyword").notNull().default(""),
     ogImageUrl: text("og_image_url"),
+    /** Describes the article's cover image (shared by every language) in this language, for screen readers and search. */
+    coverImageAlt: text("cover_image_alt").notNull().default(""),
     canonicalUrl: text("canonical_url"),
     noindex: boolean("noindex").notNull().default(false),
 

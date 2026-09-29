@@ -149,7 +149,7 @@ export function SeoFixDialog({ postId, locale, site, enabled, initial, article, 
 
         {proposals === null ? (
           <>
-            <fieldset className="mt-5" disabled={running}>
+            <fieldset className="mt-5 min-w-0" disabled={running}>
               <legend className="text-sm font-semibold text-ink">{f.fieldsLabel}</legend>
               <div className="mt-2 flex flex-col divide-y divide-zinc-100 rounded-xl border border-zinc-200">
                 {ALL_FIELDS.map((field) => (

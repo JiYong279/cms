@@ -6,6 +6,7 @@ import puppeteer from "puppeteer-core";
 import sharp from "sharp";
 import { ADMIN, CMS, Client, QUBX, destroyPosts } from "../e2e/lib.mjs";
 
+const COVER_ALT = "Lễ tân phòng khám đón khách tại quầy";
 const STORAGE = (process.env.E2E_STORAGE_URL ?? "http://localhost:9000/cms").replace(/\/$/, "");
 const OUT = new URL("./screenshots/", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
 fs.mkdirSync(OUT, { recursive: true });
@@ -65,6 +66,9 @@ try {
   expect("the cover is stored in the S3 storage", src.startsWith(`${STORAGE}/`) && src.endsWith(".webp"), src);
   await page.waitForFunction(() => document.querySelector("#field-cover img")?.complete, { timeout: 10000 });
   expect("the editor shows the cover from the storage", await loaded(page, "#field-cover img"));
+  // A cover gets a description per language, used as its alt text on the website.
+  await page.waitForSelector("#field-cover-alt");
+  await page.type("#field-cover-alt", COVER_ALT);
   const stored = await fetch(src);
   expect("anyone can open the image address", stored.ok && stored.headers.get("content-type") === "image/webp", `${stored.status}`);
   await shot(page, "storage-01-editor");
@@ -81,6 +85,9 @@ try {
   const selector = `img[src="${src}"]`;
   expect("Qub-X shows the article", res.status() === 200, String(res.status()));
   expect("Qub-X shows the cover from the storage", await loaded(qubx, selector));
+  expect("Qub-X describes the cover with its alt text", (await qubx.$eval(selector, (img) => img.getAttribute("alt")).catch(() => null)) === COVER_ALT);
+  const api = await (await fetch(`${CMS}/api/public/v1/sites/qubx/posts/thu-kho-anh-silo?locale=vi`)).json();
+  expect("the public API carries the cover description", (api.post ?? api).coverImageAlt === COVER_ALT, JSON.stringify(api).slice(0, 160));
   await shot(qubx, "storage-02-qubx");
 } catch (error) {
   failures++;

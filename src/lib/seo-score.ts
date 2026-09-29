@@ -51,6 +51,8 @@ export type ScoreInput = {
   html: string;
   categoryId: string | null;
   coverImageUrl: string | null;
+  /** This language's description of the cover image. */
+  coverImageAlt: string;
   /** The author filled in a public profile for this language. */
   authorHasProfile: boolean;
   /** The other language's version exists and neither version is out of date. */
@@ -113,7 +115,8 @@ export function scoreArticle(input: ScoreInput): ScoreResult {
   const sections = (input.html.match(/<h2\b/g) ?? []).length;
   const longParagraphs = paragraphs.filter((p) => words(p) > MAX_PARAGRAPH_WORDS).length;
   const images = input.html.match(/<img\b[^>]*>/g) ?? [];
-  const missingAlt = images.filter((img) => !/\balt="[^"]+"/.test(img)).length;
+  const coverMissingAlt = !!input.coverImageUrl?.trim() && !input.coverImageAlt.trim();
+  const missingAlt = images.filter((img) => !/\balt="[^"]+"/.test(img)).length + (coverMissingAlt ? 1 : 0);
   const host = input.siteHost.replace(/^www\./, "");
   const internalLinks = [...input.html.matchAll(/<a\b[^>]*\bhref="([^"]+)"/g)].filter(([, href]) => {
     if (href.startsWith("/") && !href.startsWith("//")) return true;
