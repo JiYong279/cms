@@ -1,4 +1,4 @@
-import { Extension, Node, mergeAttributes, type Editor } from "@tiptap/react";
+import { Extension, Node, ReactNodeViewRenderer, mergeAttributes, type Editor } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
@@ -6,11 +6,85 @@ import Placeholder from "@tiptap/extension-placeholder";
 import TextAlign from "@tiptap/extension-text-align";
 import Highlight from "@tiptap/extension-highlight";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
-import { TableKit } from "@tiptap/extension-table";
+import { Table, TableKit } from "@tiptap/extension-table";
 import Youtube from "@tiptap/extension-youtube";
 import Suggestion from "@tiptap/suggestion";
 import { imageFiles } from "@/lib/upload-client";
 import { filterBlocks, type BlockItem } from "./blocks";
+import { ImageSuggestionView } from "./image-suggestion-view";
+
+/** Images carry who to credit and whether they may be used (lib/image-rights), as data-* attributes. */
+const CreditedImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      credit: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-credit") ?? "",
+        renderHTML: (attrs) => (attrs.credit ? { "data-credit": attrs.credit } : {}),
+      },
+      rights: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-rights") ?? "",
+        renderHTML: (attrs) => (attrs.rights ? { "data-rights": attrs.rights } : {}),
+      },
+    };
+  },
+});
+
+/** Marks every image whose rights were unknown as allowed: the editor confirmed it when publishing. */
+export function permitUnknownImagesIn(editor: Editor) {
+  editor.commands.command(({ tr, state }) => {
+    state.doc.descendants((node, pos) => {
+      if (node.type.name === "image" && node.attrs.rights === "unknown") tr.setNodeMarkup(pos, undefined, { ...node.attrs, rights: "permitted" });
+    });
+    return true;
+  });
+}
+
+/** Tables carry a caption (data-caption), shown as <caption> on the website: what the table is about. */
+const CaptionedTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      caption: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-caption") ?? "",
+        renderHTML: (attrs) => (attrs.caption ? { "data-caption": attrs.caption } : {}),
+      },
+    };
+  },
+});
+
+export type SuggestionAction = "upload" | "link" | "stock";
+
+/** Where the AI suggests a picture (lib/image-suggestions): replaced by a real image, never published. */
+const ImageSuggestion = Node.create<{ onAction: (editor: Editor, pos: number, action: SuggestionAction) => void }>({
+  name: "imageSuggestion",
+  group: "block",
+  atom: true,
+  selectable: true,
+  draggable: true,
+  addOptions() {
+    return { onAction: () => {} };
+  },
+  addAttributes() {
+    return {
+      description: { default: "", parseHTML: (el) => el.textContent?.trim() ?? "", renderHTML: () => ({}) },
+      alt: { default: "", parseHTML: (el) => el.getAttribute("data-alt") ?? "", renderHTML: (attrs) => ({ "data-alt": attrs.alt }) },
+      caption: { default: "", parseHTML: (el) => el.getAttribute("data-caption") ?? "", renderHTML: (attrs) => ({ "data-caption": attrs.caption }) },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "div[data-image-suggestion]" }];
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-image-suggestion": "" }), node.attrs.description];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ImageSuggestionView);
+  },
+});
 
 export const CALLOUT_VARIANTS = ["info", "success", "warning"] as const;
 export type CalloutVariant = (typeof CALLOUT_VARIANTS)[number];
@@ -160,6 +234,8 @@ export const LinkShortcut = Extension.create<{ onOpen: () => void }>({
 
 export function buildExtensions(handlers: {
   onFiles: (editor: Editor, files: File[], at?: number) => void;
+  /** A button on an image suggestion: put a real image in its place. */
+  onSuggestion: (editor: Editor, pos: number, action: SuggestionAction) => void;
   onSlashState: (state: SlashState | null) => void;
   onSlashSelect: (item: BlockItem, editor: Editor) => void;
   onOpenLink: () => void;
@@ -172,7 +248,8 @@ export function buildExtensions(handlers: {
       link: { openOnClick: false, autolink: true, defaultProtocol: "https" },
       dropcursor: { color: "#16a260", width: 2 },
     }),
-    Image.configure({ allowBase64: false }),
+    CreditedImage.configure({ allowBase64: false }),
+    ImageSuggestion.configure({ onAction: handlers.onSuggestion }),
     Placeholder.configure({
       placeholder: ({ node }) =>
         node.type.name === "heading" ? handlers.placeholders.heading : handlers.placeholders.paragraph,
@@ -181,7 +258,8 @@ export function buildExtensions(handlers: {
     Highlight.configure({ multicolor: true }),
     TextStyle,
     Color,
-    TableKit.configure({ table: { resizable: false } }),
+    TableKit.configure({ table: false }),
+    CaptionedTable.configure({ resizable: false }),
     Youtube.configure({ nocookie: true, modestBranding: true, width: 640, height: 360 }),
     Callout,
     ImagePasteAndDrop.configure({ onFiles: handlers.onFiles }),

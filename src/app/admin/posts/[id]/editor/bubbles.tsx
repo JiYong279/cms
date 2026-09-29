@@ -26,11 +26,13 @@ import {
   Ungroup,
 } from "lucide-react";
 import { useI18n } from "@/i18n/client";
+import { IMAGE_RIGHTS } from "@/lib/image-rights";
 import { cn } from "@/lib/utils";
 import type { CalloutVariant } from "./extensions";
 import { Divider, IconButton } from "./ui";
 
-const menuClass = "flex items-center gap-0.5 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg";
+// Tiptap sets `width: max-content` inline; max-width keeps menus on narrow screens.
+const menuClass = "flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-0.5 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg";
 
 /** Formatting and link editing next to the selected text. */
 export function TextBubble({ editor }: { editor: Editor }) {
@@ -66,7 +68,7 @@ export function TextBubble({ editor }: { editor: Editor }) {
       shouldShow={({ editor: e, from, to }) =>
         from !== to && !e.isActive("image") && !e.isActive("codeBlock") && !e.isActive("youtube")
       }
-      options={{ placement: "top", offset: 8, onHide: () => setLinkDraft(null) }}
+      options={{ placement: "top", offset: 8, shift: { padding: 8 }, onHide: () => setLinkDraft(null) }}
       className={menuClass}
     >
       {linkDraft === null ? (
@@ -127,8 +129,10 @@ export function ImageBubble({ editor }: { editor: Editor }) {
         ? {
             alt: (e.getAttributes("image").alt as string | undefined) ?? "",
             title: (e.getAttributes("image").title as string | undefined) ?? "",
+            credit: (e.getAttributes("image").credit as string | undefined) ?? "",
+            rights: (e.getAttributes("image").rights as string | undefined) ?? "",
           }
-        : { alt: "", title: "" },
+        : { alt: "", title: "", credit: "", rights: "" },
   });
 
   return (
@@ -136,8 +140,8 @@ export function ImageBubble({ editor }: { editor: Editor }) {
       editor={editor}
       pluginKey="imageBubble"
       shouldShow={({ editor: e }) => e.isActive("image")}
-      options={{ placement: "bottom", offset: 8 }}
-      className="flex w-[26rem] flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
+      options={{ placement: "bottom", offset: 8, shift: { padding: 8 } }}
+      className="flex w-[26rem]! max-w-[calc(100vw-1rem)] flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
     >
       <label className="flex items-center gap-2 text-xs text-zinc-500">
         <span className="w-16 shrink-0">{b.alt}</span>
@@ -161,6 +165,34 @@ export function ImageBubble({ editor }: { editor: Editor }) {
         />
         <IconButton icon={Trash2} label={b.deleteImage} onClick={() => editor.chain().focus().deleteSelection().run()} />
       </label>
+      <div className="flex items-center gap-2 text-xs text-zinc-500">
+        <span className="w-16 shrink-0">{b.source}</span>
+        <select
+          value={attrs.rights}
+          aria-label={b.rights}
+          data-image-rights
+          onChange={(e) => editor.commands.updateAttributes("image", { rights: e.target.value })}
+          className={cn(
+            "rounded-md border px-1.5 py-1 text-xs text-zinc-800 outline-none focus:border-brand",
+            attrs.rights === "unknown" ? "border-amber-400 bg-amber-50" : "border-zinc-200",
+          )}
+        >
+          <option value="">{b.rightsUnset}</option>
+          {IMAGE_RIGHTS.map((r) => (
+            <option key={r} value={r}>
+              {b.rightsOptions[r]}
+            </option>
+          ))}
+        </select>
+        <input
+          value={attrs.credit}
+          aria-label={b.credit}
+          onChange={(e) => editor.commands.updateAttributes("image", { credit: e.target.value })}
+          placeholder={b.creditPlaceholder}
+          className="min-w-0 flex-1 rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-brand"
+        />
+      </div>
+      {attrs.rights === "unknown" && <p className="px-1 text-[11px] leading-snug text-amber-700">{b.unknownHint}</p>}
     </BubbleMenu>
   );
 }
@@ -170,14 +202,29 @@ export function TableBubble({ editor }: { editor: Editor }) {
   const { t } = useI18n();
   const b = t.editor.bubbles;
   const chain = () => editor.chain().focus();
+  const caption = useEditorState({
+    editor,
+    selector: ({ editor: e }) => (e.isActive("table") ? ((e.getAttributes("table").caption as string | undefined) ?? "") : ""),
+  });
   return (
     <BubbleMenu
       editor={editor}
       pluginKey="tableBubble"
       shouldShow={({ editor: e, from, to }) => e.isActive("table") && from === to}
-      options={{ placement: "top", offset: 8 }}
-      className={menuClass}
+      options={{ placement: "top", offset: 8, shift: { padding: 8 } }}
+      className={cn(menuClass, "flex-col items-stretch gap-1")}
     >
+      <label className="flex items-center gap-2 px-1.5 pt-0.5 text-xs text-zinc-500">
+        <span className="shrink-0 font-medium">{b.tableCaption}</span>
+        <input
+          value={caption}
+          data-table-caption
+          onChange={(e) => editor.commands.updateAttributes("table", { caption: e.target.value })}
+          placeholder={b.tableCaptionPlaceholder}
+          className="min-w-0 flex-1 rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-brand"
+        />
+      </label>
+      <div className="flex flex-wrap items-center gap-0.5">
       <span className="flex items-center gap-1 px-1.5 text-xs font-medium text-zinc-500">
         <Rows3 className="size-3.5" /> {b.rows}
       </span>
@@ -201,6 +248,7 @@ export function TableBubble({ editor }: { editor: Editor }) {
       >
         {b.deleteTable}
       </button>
+      </div>
     </BubbleMenu>
   );
 }
@@ -224,7 +272,7 @@ export function CalloutBubble({ editor }: { editor: Editor }) {
       editor={editor}
       pluginKey="calloutBubble"
       shouldShow={({ editor: e, from, to }) => e.isActive("callout") && from === to}
-      options={{ placement: "top-start", offset: 8 }}
+      options={{ placement: "top-start", offset: 8, shift: { padding: 8 } }}
       className={menuClass}
     >
       {VARIANTS.map((v) => (

@@ -15,14 +15,15 @@ import {
   Quote,
   Table,
   SquarePlay,
-  type LucideIcon,
-} from "lucide-react";
+  type LucideIcon, ImageIcon } from "lucide-react";
 import { dictionaries, type Dict } from "@/i18n";
 import { slugify } from "@/lib/posts";
 
 /** Actions that need the editor's surrounding UI (file picker, dialogs). */
 export type EditorUi = {
   pickImage: () => void;
+  /** Free stock photos (Pexels), inserted at the cursor. */
+  pickStock: (editor: Editor) => void;
   promptImageUrl: (editor: Editor) => void;
   promptYoutube: (editor: Editor) => void;
 };
@@ -90,6 +91,13 @@ export const BLOCKS: BlockItem[] = [
     icon: ImagePlus,
     group: "media",
     run: (_e, ui) => ui.pickImage(),
+  },
+  {
+    id: "stock-image",
+    keywords: "stock photo free pexels anh mien phi kho",
+    icon: ImageIcon,
+    group: "media",
+    run: (e, ui) => ui.pickStock(e),
   },
   {
     id: "image-url",

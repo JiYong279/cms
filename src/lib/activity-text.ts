@@ -12,6 +12,7 @@ import { fmt, type Dict } from "@/i18n";
  *   post.purged                              { days }
  *   post.planned                             { date: "YYYY-MM-DD" }
  *   post.assigned                            { name }
+ *   post.ai_planned                          { topic, n, name }
  *   post.created                             (uses the entry's website name)
  *   user.created                             { name, role }
  *   user.updated                             { name, changes: [{ type: "role", from, to } | { type: "lock" } | { type: "unlock" } | { type: "rename", to }] }
@@ -47,6 +48,10 @@ export function describeActivity(entry: Entry, t: Dict): string {
   if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
     vars.date = new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
   }
+  const n = str(meta.n);
+  if (n) vars.n = n;
+  const topic = str(meta.topic);
+  if (topic) vars.topic = topic;
   const days = str(meta.days);
   if (days) vars.days = days;
   const name = str(meta.name);

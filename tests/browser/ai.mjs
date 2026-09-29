@@ -160,6 +160,22 @@ try {
   await page.waitForFunction(() => !document.querySelector("[data-seo-fix]"));
   expect("the built-in AI's SEO title goes into the editor", (await page.$eval("#field-meta-title", (e) => e.value)).startsWith("[AI] "));
   expect("activity log records the AI SEO fix", (await admin.req("/admin/activity")).text.includes("Dùng AI sửa phần SEO bản VI"));
+
+  // 6. "Plan with AI" on the calendar, with the built-in AI.
+  await page.goto(`${CMS}/admin/calendar?site=qubx`, { waitUntil: "networkidle0" });
+  await page.click("[data-plan-ai]");
+  await page.waitForSelector("[data-plan-dialog]", { visible: true });
+  await page.type('[data-plan-dialog] textarea[placeholder^="Ví dụ"]', "Chăm sóc khách sau liệu trình");
+  await page.$eval('[data-plan-dialog] input[type="number"]', (el) => {
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, "3");
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.click("[data-plan-dialog] button::-p-text(Nhờ AI đề xuất)");
+  await page.waitForSelector("[data-plan-review]", { timeout: 20000 });
+  const planRequest = requests.at(-1);
+  expect("the plan request asks for 3 articles through the content_plan tool", planRequest.tool_choice?.name === "content_plan" && planRequest.messages[0].content.includes("một cụm 3 bài"));
+  expect("the built-in AI's 3 ideas are shown for review", (await page.$$("[data-plan-review] [data-idea]")).length === 3);
+  expect("activity log records the AI plan", (await admin.req("/admin/activity")).text.includes("Dùng AI lên kế hoạch 3 bài"));
 } catch (error) {
   failures++;
   console.log("ERROR:", error.message);

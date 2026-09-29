@@ -137,6 +137,7 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
                 html: tr.contentHtml,
                 categoryId: post.categoryId,
                 coverImageUrl: post.coverImageUrl,
+                coverImageAlt: tr.coverImageAlt,
                 authorHasProfile: !!(author?.jobTitles[l]?.trim() || author?.bios[l]?.trim()),
                 translationInSync: !!other && !isStale(tr, post.translations) && !isStale(other, post.translations),
                 siteHost: new URL(post.site.baseUrl).host,

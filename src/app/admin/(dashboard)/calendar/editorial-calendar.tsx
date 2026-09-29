@@ -144,7 +144,7 @@ export function EditorialCalendar({ weeks, month, today, weekdays, entries, show
         dragging === e.postId && e.movable && "opacity-40",
       )}
     >
-      <span className={cn("block font-medium leading-snug text-zinc-800", compact ? "line-clamp-2 text-xs" : "text-sm")}>
+      <span className={cn("block font-medium leading-snug text-zinc-800 [overflow-wrap:anywhere]", compact ? "line-clamp-2 text-xs" : "text-sm")}>
         {e.title || <span className="italic text-zinc-400">{c.untitled}</span>}
       </span>
       <span className="mt-1 flex flex-wrap items-center gap-1 text-[10px] text-zinc-500">

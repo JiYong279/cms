@@ -10,6 +10,7 @@ import type { PostStatus } from "@/db/schema";
 import { logActivity } from "@/lib/activity";
 import { requireUser, type CurrentUser } from "@/lib/auth";
 import { can, canDeletePost, canEditPost, canEditTranslation, isLive } from "@/lib/permissions";
+import { countUnknownImages } from "@/lib/image-rights";
 import { slugify } from "@/lib/posts";
 import { fmt } from "@/i18n";
 import { getT } from "@/i18n/server";
@@ -104,6 +105,10 @@ const SaveInput = z.object({
   categoryId: z.uuid().nullable(),
   featured: z.boolean(),
   coverImageUrl: z.url().nullable().or(z.literal("").transform(() => null)),
+  /** How many images the editor confirmed may be used in this save (they arrive as "permitted"). */
+  imagesConfirmed: z.number().int().min(0).max(500).optional(),
+  /** This language's description of the cover image; left out, the saved one stays. */
+  coverImageAlt: z.string().trim().max(300).optional(),
   /** Set when this content was just translated from that locale (the editor's AI translation). */
   translatedFrom: z.enum(schema.localeEnum.enumValues).nullable().optional(),
 });
@@ -141,6 +146,11 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
   if (isLive(input.status) && !can(user.role, "posts.publish")) {
     return { ok: false, error: t.notAllowedPublish };
   }
+  // An image nobody knows may be used never reaches the website.
+  const unknownImages = countUnknownImages(input.contentHtml);
+  if (isLive(input.status) && unknownImages > 0) {
+    return { ok: false, error: fmt(t.unknownImages, { n: unknownImages }) };
+  }
 
   const slug = slugify(input.slug || input.title);
   if (!slug) return { ok: false, error: t.badSlug };
@@ -167,6 +177,7 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
     metaDescription: input.metaDescription,
     focusKeyword: input.focusKeyword,
     noindex: input.noindex,
+    coverImageAlt: input.coverImageAlt ?? existing?.coverImageAlt ?? "",
     contentHash: contentHash(input.title, input.excerpt, input.contentHtml),
     scheduledAt: input.status === "scheduled" ? new Date(input.scheduledAt!) : null,
     // Only people who may publish can change the date readers see.
@@ -248,6 +259,17 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
       ...(existing && existing.slug !== slug ? { slugFrom: existing.slug, slugTo: slug } : {}),
     },
   });
+
+  if (input.imagesConfirmed && can(user.role, "posts.publish")) {
+    await logActivity({
+      userId: user.id,
+      action: "post.images_confirmed",
+      entityType: "post",
+      entityId: post.id,
+      siteId: post.siteId,
+      meta: { title: input.title, locale: input.locale, n: input.imagesConfirmed },
+    });
+  }
 
   revalidatePath("/admin");
   revalidatePath(`/admin/posts/${post.id}`);
