@@ -201,14 +201,29 @@ export function TableBubble({ editor }: { editor: Editor }) {
   const { t } = useI18n();
   const b = t.editor.bubbles;
   const chain = () => editor.chain().focus();
+  const caption = useEditorState({
+    editor,
+    selector: ({ editor: e }) => (e.isActive("table") ? ((e.getAttributes("table").caption as string | undefined) ?? "") : ""),
+  });
   return (
     <BubbleMenu
       editor={editor}
       pluginKey="tableBubble"
       shouldShow={({ editor: e, from, to }) => e.isActive("table") && from === to}
       options={{ placement: "top", offset: 8 }}
-      className={menuClass}
+      className={cn(menuClass, "flex-col items-stretch gap-1")}
     >
+      <label className="flex items-center gap-2 px-1.5 pt-0.5 text-xs text-zinc-500">
+        <span className="shrink-0 font-medium">{b.tableCaption}</span>
+        <input
+          value={caption}
+          data-table-caption
+          onChange={(e) => editor.commands.updateAttributes("table", { caption: e.target.value })}
+          placeholder={b.tableCaptionPlaceholder}
+          className="min-w-0 flex-1 rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-brand"
+        />
+      </label>
+      <div className="flex items-center gap-0.5">
       <span className="flex items-center gap-1 px-1.5 text-xs font-medium text-zinc-500">
         <Rows3 className="size-3.5" /> {b.rows}
       </span>
@@ -232,6 +247,7 @@ export function TableBubble({ editor }: { editor: Editor }) {
       >
         {b.deleteTable}
       </button>
+      </div>
     </BubbleMenu>
   );
 }

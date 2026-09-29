@@ -6,7 +6,7 @@ import Placeholder from "@tiptap/extension-placeholder";
 import TextAlign from "@tiptap/extension-text-align";
 import Highlight from "@tiptap/extension-highlight";
 import { Color, TextStyle } from "@tiptap/extension-text-style";
-import { TableKit } from "@tiptap/extension-table";
+import { Table, TableKit } from "@tiptap/extension-table";
 import Youtube from "@tiptap/extension-youtube";
 import Suggestion from "@tiptap/suggestion";
 import { imageFiles } from "@/lib/upload-client";
@@ -40,6 +40,20 @@ export function permitUnknownImagesIn(editor: Editor) {
     return true;
   });
 }
+
+/** Tables carry a caption (data-caption), shown as <caption> on the website: what the table is about. */
+const CaptionedTable = Table.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      caption: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-caption") ?? "",
+        renderHTML: (attrs) => (attrs.caption ? { "data-caption": attrs.caption } : {}),
+      },
+    };
+  },
+});
 
 export const CALLOUT_VARIANTS = ["info", "success", "warning"] as const;
 export type CalloutVariant = (typeof CALLOUT_VARIANTS)[number];
@@ -210,7 +224,8 @@ export function buildExtensions(handlers: {
     Highlight.configure({ multicolor: true }),
     TextStyle,
     Color,
-    TableKit.configure({ table: { resizable: false } }),
+    TableKit.configure({ table: false }),
+    CaptionedTable.configure({ resizable: false }),
     Youtube.configure({ nocookie: true, modestBranding: true, width: 640, height: 360 }),
     Callout,
     ImagePasteAndDrop.configure({ onFiles: handlers.onFiles }),
