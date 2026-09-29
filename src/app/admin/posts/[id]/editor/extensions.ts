@@ -56,7 +56,7 @@ const CaptionedTable = Table.extend({
   },
 });
 
-export type SuggestionAction = "upload" | "link";
+export type SuggestionAction = "upload" | "link" | "stock";
 
 /** Where the AI suggests a picture (lib/image-suggestions): replaced by a real image, never published. */
 const ImageSuggestion = Node.create<{ onAction: (editor: Editor, pos: number, action: SuggestionAction) => void }>({

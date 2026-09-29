@@ -1,7 +1,7 @@
 "use client";
 
 import { NodeViewWrapper, type Editor, type ReactNodeViewProps } from "@tiptap/react";
-import { ImagePlus, Link2, Trash2, Upload } from "lucide-react";
+import { ImageIcon, ImagePlus, Link2, Trash2, Upload } from "lucide-react";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/utils";
 import type { SuggestionAction } from "./extensions";
@@ -50,6 +50,10 @@ export function ImageSuggestionView({ node, getPos, editor, extension, deleteNod
           <button type="button" onClick={() => act("upload")} className={cn(button, "border-brand bg-brand text-white hover:bg-brand-hover")}>
             <Upload className="size-3.5" />
             {s.upload}
+          </button>
+          <button type="button" onClick={() => act("stock")} className={cn(button, "border-brand bg-white text-brand hover:bg-brand-soft")}>
+            <ImageIcon className="size-3.5" />
+            {s.stock}
           </button>
           <button type="button" onClick={() => act("link")} className={cn(button, "border-zinc-300 bg-white text-zinc-700 hover:border-zinc-400")}>
             <Link2 className="size-3.5" />

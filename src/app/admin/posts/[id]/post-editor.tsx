@@ -684,6 +684,7 @@ export function PostEditor({
                 content={content.json}
                 replacement={replacement}
                 editorRef={editorRef}
+                locale={locale}
                 onChange={edit(setContent)}
                 siteId={site.id}
                 onError={setError}

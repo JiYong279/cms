@@ -10,6 +10,7 @@ import { CalloutBubble, ImageBubble, TableBubble, TextBubble } from "./editor/bu
 import { buildExtensions, type SlashState } from "./editor/extensions";
 import { SlashMenu } from "./editor/slash-menu";
 import { Toolbar } from "./editor/toolbar";
+import { StockDialog } from "./editor/stock-dialog";
 import { UrlDialog, type UrlDialogConfig } from "./editor/url-dialog";
 
 type Props = {
@@ -20,13 +21,15 @@ type Props = {
   editable?: boolean;
   /** Replaces the whole document with this HTML (e.g. an AI draft) each time `version` changes. */
   replacement?: { html: string; version: number } | null;
+  /** The article's language: stock photo searches use it. */
+  locale: "vi" | "en";
   /** Receives the editor once it exists, for changes made from outside (confirming image rights). */
   editorRef?: React.RefObject<Editor | null>;
 };
 
 const YOUTUBE_URL = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?|shorts\/|embed\/)|youtu\.be\/)\S+$/;
 
-export function RichTextEditor({ content, onChange, siteId, onError, editable = true, replacement, editorRef }: Props) {
+export function RichTextEditor({ content, onChange, siteId, locale, onError, editable = true, replacement, editorRef }: Props) {
   const { t } = useI18n();
   const [uploading, setUploading] = useState(0);
   const [slash, setSlash] = useState<SlashState | null>(null);
@@ -36,8 +39,11 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
   // The image suggestion waiting for the file being picked, to put the upload in its place.
   const [suggestionAt, setSuggestionAt] = useState<number | null>(null);
 
+  // The stock photo picker: for an image suggestion (its position) or the cursor (null).
+  const [stock, setStock] = useState<{ pos: number | null; query: string } | null>(null);
+
   /** Puts a real image where a suggestion was, with the suggestion's description and caption. */
-  function replaceSuggestion(editor: Editor, pos: number, image: { src: string; width?: number; height?: number; rights: string }) {
+  function replaceSuggestion(editor: Editor, pos: number, image: { src: string; width?: number; height?: number; rights: string; credit?: string }) {
     const node = editor.state.doc.nodeAt(pos);
     if (!node || node.type.name !== "imageSuggestion") return;
     const attrs = { ...image, alt: node.attrs.alt as string, title: node.attrs.caption as string };
@@ -77,6 +83,7 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
   }
 
   const ui: EditorUi = {
+    pickStock: () => setStock({ pos: null, query: "" }),
     pickImage: () => {
       // A suggestion whose file picker was cancelled must not catch this upload.
       setSuggestionAt(null);
@@ -108,6 +115,10 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
     extensions: buildExtensions({
       onFiles: (e, files, at) => void insertImages(e, files, at),
       onSuggestion: (e, pos, action) => {
+        if (action === "stock") {
+          setStock({ pos, query: (e.state.doc.nodeAt(pos)?.attrs.description as string | undefined) ?? "" });
+          return;
+        }
         if (action === "upload") {
           setSuggestionAt(pos);
           document.getElementById(fileInputId)?.click();
@@ -192,6 +203,20 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
       <EditorContent editor={editor} className="mt-6" />
       {editor && <SlashMenu editor={editor} state={slash} />}
       {dialog && <UrlDialog config={dialog} onClose={() => setDialog(null)} />}
+      {stock && editor && (
+        <StockDialog
+          siteId={siteId}
+          locale={locale}
+          initialQuery={stock.query}
+          onClose={() => setStock(null)}
+          onPick={(image) => {
+            const attrs = { src: image.url, width: image.width, height: image.height, rights: "stock", credit: image.credit };
+            if (stock.pos !== null) replaceSuggestion(editor, stock.pos, attrs);
+            else editor.chain().focus().insertContent({ type: "image", attrs: { ...attrs, alt: image.alt } }).run();
+            setStock(null);
+          }}
+        />
+      )}
     </div>
   );
 }
