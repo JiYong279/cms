@@ -22,6 +22,7 @@
     "test:translate": "tsx tests/browser/translate.mjs",
     "test:back": "tsx tests/browser/back-button.mjs",
     "test:seo-fix": "tsx tests/seo/fix.test.ts && tsx tests/browser/seo-fix.mjs",
+    "test:content-plan": "tsx tests/seo/plan.test.ts && tsx tests/browser/content-plan.mjs",
     "test:image-storage": "tsx --env-file=.env.local tests/storage-s3.test.ts && tsx tests/browser/image-storage.mjs"
   },
   "dependencies": {

@@ -1,11 +1,12 @@
 "use server";
 
-import { and, count, eq, gt, inArray } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 import { z } from "zod";
 import { getDb, schema } from "@/db";
 import type { Locale } from "@/db/schema";
 import { logActivity } from "@/lib/activity";
 import { AiError, DRAFT_LENGTHS, draftArticle, fixSeoFields, translateArticle, type ArticleFields, type SiteContext } from "@/lib/ai";
+import { AI_DAILY_LIMIT, getAiRunsToday } from "@/lib/ai-usage";
 import { requireUser, type CurrentUser } from "@/lib/auth";
 import { categoryName } from "@/lib/categories";
 import { canEditPost, canEditTranslation } from "@/lib/permissions";
@@ -16,9 +17,6 @@ import { getT } from "@/i18n/server";
 /** `categoryId`: the category the AI picked for a draft, if any. */
 export type AiResult = { ok: true; article: ArticleFields & { categoryId: string | null } } | { ok: false; error: string };
 
-const AI_ACTIONS = ["post.ai_drafted", "post.ai_translated", "post.ai_seo_fixed"];
-// Each run costs money: a generous cap per person per day stops runaway use.
-const DAILY_LIMIT = Number(process.env.AI_DAILY_LIMIT) || 30;
 
 const localeSchema = z.enum(schema.localeEnum.enumValues);
 
@@ -72,17 +70,7 @@ async function loadForAi(user: CurrentUser, postId: string, locale: Locale, t: D
   const target = post.translations.find((tr) => tr.locale === locale);
   if (!canEditTranslation(user, target?.status ?? null)) return { error: t.posts.errors.liveLocked };
 
-  const [{ used }] = await db
-    .select({ used: count() })
-    .from(schema.activityLog)
-    .where(
-      and(
-        eq(schema.activityLog.userId, user.id),
-        inArray(schema.activityLog.action, AI_ACTIONS),
-        gt(schema.activityLog.at, new Date(Date.now() - 24 * 60 * 60_000)),
-      ),
-    );
-  if (used >= DAILY_LIMIT) return { error: fmt(e.dailyLimit, { n: DAILY_LIMIT }) };
+  if ((await getAiRunsToday(user.id)) >= AI_DAILY_LIMIT) return { error: fmt(e.dailyLimit, { n: AI_DAILY_LIMIT }) };
 
   const [glossary, categories] = await Promise.all([
     db

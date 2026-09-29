@@ -82,6 +82,8 @@ type Props = {
 };
 
 const PLACEHOLDER_SLUG = /^bai-viet-[0-9a-f]{8}$/;
+/** Below this many words the body is just an outline (a planned draft), not an article yet. */
+const OUTLINE_ONLY_WORDS = 150;
 
 function toLocalInput(date: Date | null) {
   if (!date) return "";
@@ -904,6 +906,9 @@ export function PostEditor({
           hasContent={!!title.trim() || countWords(content.html) > 0}
           dirty={dirty}
           initialKeyword={focusKeyword}
+          // A planned draft holds only its outline: start the draft from its title and headings.
+          initialTopic={countWords(content.html) < OUTLINE_ONLY_WORDS ? title : ""}
+          initialKeyPoints={countWords(content.html) < OUTLINE_ONLY_WORDS ? outline.filter(Boolean).join("\n") : ""}
           initialMode={openAi}
           initialEngine={aiEngine}
           onTranslateOut={translateOut}
@@ -1162,6 +1167,8 @@ function AiDialog({
   hasContent,
   dirty,
   initialKeyword,
+  initialTopic,
+  initialKeyPoints,
   initialMode,
   initialEngine,
   onTranslateOut,
@@ -1179,6 +1186,8 @@ function AiDialog({
   /** This version has changes not saved yet (translating it out saves them first). */
   dirty: boolean;
   initialKeyword: string;
+  initialTopic: string;
+  initialKeyPoints: string;
   initialMode: "translate" | null;
   initialEngine: "own" | "builtin" | null;
   /** Translate this version into `target`: done in that language's editor, which this opens. */
@@ -1198,8 +1207,8 @@ function AiDialog({
   const [mode, setMode] = useState<"draft" | "translate">(initialMode ?? (canTranslate && !hasContent ? "translate" : "draft"));
   // A version with content is most likely the one to translate; an empty one waits for the other.
   const [direction, setDirection] = useState<"into" | "out">(!initialMode && canTranslateOut ? "out" : "into");
-  const [topic, setTopic] = useState("");
-  const [keyPoints, setKeyPoints] = useState("");
+  const [topic, setTopic] = useState(initialTopic);
+  const [keyPoints, setKeyPoints] = useState(initialKeyPoints);
   const [keyword, setKeyword] = useState(initialKeyword);
   const [length, setLength] = useState<DraftLength>("medium");
   const [error, setError] = useState<string | null>(null);
