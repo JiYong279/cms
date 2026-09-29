@@ -127,6 +127,8 @@ const vi = {
     uploading: "Đang tải ảnh bìa…",
     add: "Thêm ảnh bìa — bấm để chọn hoặc kéo ảnh vào đây",
     failed: "Tải ảnh bìa thất bại.",
+    altLabel: "Mô tả ảnh bìa ({language})",
+    altPlaceholder: "Ảnh có gì? Ví dụ: Lễ tân phòng khám đón khách tại quầy",
   },
   panel: {
     outline: "Mục lục",
@@ -502,6 +504,9 @@ const en: EditorDict = {
     uploading: "Uploading cover image…",
     add: "Add a cover image — click to choose or drop an image here",
     failed: "Could not upload the cover image.",
+    altLabel: "Cover description ({language})",
+    altPlaceholder: "What does it show? For example: A clinic receptionist welcoming a client",
+
   },
   panel: {
     outline: "Outline",

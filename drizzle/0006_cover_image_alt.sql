@@ -1,0 +1,1 @@
+ALTER TABLE "post_translations" ADD COLUMN "cover_image_alt" text DEFAULT '' NOT NULL;

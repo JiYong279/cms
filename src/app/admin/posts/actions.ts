@@ -104,6 +104,8 @@ const SaveInput = z.object({
   categoryId: z.uuid().nullable(),
   featured: z.boolean(),
   coverImageUrl: z.url().nullable().or(z.literal("").transform(() => null)),
+  /** This language's description of the cover image; left out, the saved one stays. */
+  coverImageAlt: z.string().trim().max(300).optional(),
   /** Set when this content was just translated from that locale (the editor's AI translation). */
   translatedFrom: z.enum(schema.localeEnum.enumValues).nullable().optional(),
 });
@@ -167,6 +169,7 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
     metaDescription: input.metaDescription,
     focusKeyword: input.focusKeyword,
     noindex: input.noindex,
+    coverImageAlt: input.coverImageAlt ?? existing?.coverImageAlt ?? "",
     contentHash: contentHash(input.title, input.excerpt, input.contentHtml),
     scheduledAt: input.status === "scheduled" ? new Date(input.scheduledAt!) : null,
     // Only people who may publish can change the date readers see.

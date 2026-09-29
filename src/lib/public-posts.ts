@@ -20,6 +20,8 @@ export type PublicPostSummary = {
   category: { id: string; name: string; slug: string } | null;
   featured: boolean;
   coverImageUrl: string | null;
+  /** Describes the cover in this language; empty when not written yet. */
+  coverImageAlt: string;
   publishedAt: string;
   updatedAt: string;
   readingMinutes: number;
@@ -137,6 +139,7 @@ function summary({ t, alternates }: Awaited<ReturnType<typeof loadLive>>[number]
       : null,
     featured: t.post.featured,
     coverImageUrl: t.post.coverImageUrl,
+    coverImageAlt: t.coverImageAlt,
     publishedAt: liveDate(t).toISOString(),
     updatedAt: t.updatedAt.toISOString(),
     readingMinutes: t.readingMinutes,

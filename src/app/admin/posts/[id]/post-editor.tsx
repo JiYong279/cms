@@ -169,6 +169,7 @@ export function PostEditor({
   const [categoryId, setCategoryId] = useState(post.categoryId ?? "");
   const [featured, setFeatured] = useState(post.featured);
   const [coverImageUrl, setCoverImageUrl] = useState(post.coverImageUrl ?? "");
+  const [coverImageAlt, setCoverImageAlt] = useState(translation?.coverImageAlt ?? "");
 
   const [dirty, setDirty] = useState(false);
   const [savedAt, setSavedAt] = useState<Date | null>(translation?.updatedAt ?? null);
@@ -227,6 +228,7 @@ export function PostEditor({
         categoryId: categoryId || null,
         featured,
         coverImageUrl: coverImageUrl.trim(),
+        coverImageAlt,
         translatedFrom,
       });
       if (!result.ok) {
@@ -278,6 +280,7 @@ export function PostEditor({
     categoryId,
     featured,
     coverImageUrl,
+    coverImageAlt,
     translatedFrom,
   ]);
 
@@ -352,6 +355,7 @@ export function PostEditor({
   function goToCheck(id: CheckId) {
     // An image still missing its description: select it, which opens its description box.
     if (id === "imagesAlt") {
+      if (coverImageUrl.trim() && !coverImageAlt.trim()) return goTo("field-cover-alt");
       const image = document.querySelector<HTMLElement>('.ProseMirror img:not([alt]), .ProseMirror img[alt=""]');
       if (image) {
         image.scrollIntoView({ behavior: "smooth", block: "center" });
@@ -389,6 +393,7 @@ export function PostEditor({
     html: content.html,
     categoryId: categoryId || null,
     coverImageUrl: coverImageUrl.trim() || null,
+    coverImageAlt,
     authorHasProfile,
     translationInSync: !!otherVersion?.status && !otherVersion.stale && !locales.find((tab) => tab.locale === locale)?.stale,
     siteHost: new URL(site.baseUrl).host,
@@ -643,6 +648,23 @@ export function PostEditor({
                 onChange={edit(setCoverImageUrl)}
                 onError={setError}
               />
+              {coverImageUrl.trim() && (
+                <label className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
+                  <span className="shrink-0 font-medium">{fmt(t.editor.cover.altLabel, { language: t.common.locales[locale] })}</span>
+                  <input
+                    id="field-cover-alt"
+                    value={coverImageAlt}
+                    onChange={(e) => edit(setCoverImageAlt)(e.target.value)}
+                    placeholder={t.editor.cover.altPlaceholder}
+                    disabled={locked}
+                    maxLength={300}
+                    className={cn(
+                      "min-w-0 flex-1 rounded-md border px-2.5 py-1.5 text-sm text-zinc-700 outline-none focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/20",
+                      coverImageAlt.trim() ? "border-zinc-200 bg-white" : "border-amber-300 bg-amber-50/60",
+                    )}
+                  />
+                </label>
+              )}
             </div>
             <hr className="my-8 border-line" />
 

@@ -18,6 +18,7 @@ const empty: ScoreInput = {
   html: "",
   categoryId: null,
   coverImageUrl: null,
+  coverImageAlt: "",
   authorHasProfile: false,
   translationInSync: false,
   siteHost: "www.qub-x.com",
@@ -51,6 +52,7 @@ const full: ScoreInput = {
   ].join(""),
   categoryId: "c1",
   coverImageUrl: "https://x/cover.webp",
+  coverImageAlt: "Lễ tân đón khách tại quầy",
   authorHasProfile: true,
   translationInSync: true,
   siteHost: "www.qub-x.com",
@@ -68,6 +70,8 @@ check("an SEO title over 60 characters fails, the title is used when it is empty
 check("without a keyword every keyword check fails", ["keywordSet", "keywordInTitle", "keywordInSlug", "keywordInIntro"].every((id) => earned({ ...full, focusKeyword: "" }, id) === 0));
 const noExtras = scoreArticle({ ...full, coverImageUrl: null, authorHasProfile: false, translationInSync: false });
 check("cover, author and translation are worth 15 points", noExtras.score === 85, String(noExtras.score));
+
+check("a cover without a description counts as an image without one", earned({ ...full, coverImageAlt: "" }, "imagesAlt") === 0 && earned(full, "imagesAlt") === 1);
 
 console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
 process.exit(failures ? 1 : 0);
