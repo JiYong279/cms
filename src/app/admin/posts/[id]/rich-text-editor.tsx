@@ -20,11 +20,13 @@ type Props = {
   editable?: boolean;
   /** Replaces the whole document with this HTML (e.g. an AI draft) each time `version` changes. */
   replacement?: { html: string; version: number } | null;
+  /** Receives the editor once it exists, for changes made from outside (confirming image rights). */
+  editorRef?: React.RefObject<Editor | null>;
 };
 
 const YOUTUBE_URL = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?|shorts\/|embed\/)|youtu\.be\/)\S+$/;
 
-export function RichTextEditor({ content, onChange, siteId, onError, editable = true, replacement }: Props) {
+export function RichTextEditor({ content, onChange, siteId, onError, editable = true, replacement, editorRef }: Props) {
   const { t } = useI18n();
   const [uploading, setUploading] = useState(0);
   const [slash, setSlash] = useState<SlashState | null>(null);
@@ -39,7 +41,7 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
       setUploading((n) => n + 1);
       try {
         const image = await uploadImage(file, { siteId, networkError: t.editor.upload.network });
-        const node = { type: "image", attrs: { src: image.url, alt: "", width: image.width, height: image.height } };
+        const node = { type: "image", attrs: { src: image.url, alt: "", width: image.width, height: image.height, rights: "own" } };
         const target = Math.min(pos ?? editor.state.selection.to, editor.state.doc.content.size);
         editor.chain().focus().insertContentAt(target, node).run();
         pos = editor.state.selection.to;
@@ -60,7 +62,7 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
         placeholder: t.editor.urlDialog.imagePlaceholder,
         withAlt: true,
         validate: (url) => (/^https?:\/\/\S+$/.test(url) ? null : t.editor.urlDialog.imageInvalid),
-        onSubmit: (src, alt) => editor.chain().focus().setImage({ src, alt }).run(),
+        onSubmit: (src, alt) => editor.chain().focus().insertContent({ type: "image", attrs: { src, alt, rights: "unknown" } }).run(),
       }),
     promptYoutube: (editor) =>
       setDialog({
@@ -96,6 +98,10 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
   useEffect(() => {
     if (editor && replacement) editor.commands.setContent(replacement.html);
   }, [editor, replacement]);
+
+  useEffect(() => {
+    if (editorRef) editorRef.current = editor;
+  }, [editor, editorRef]);
 
   const toolbar = editor && (
     <Toolbar

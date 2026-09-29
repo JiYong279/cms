@@ -194,6 +194,10 @@ body {
 .tiptap img.ProseMirror-selectednode {
   outline-color: #16a260;
 }
+/* Not known whether the image may be used: stands out until someone checks it. */
+.tiptap img[data-rights="unknown"] {
+  outline-color: #f59e0b;
+}
 .tiptap hr {
   border: none;
   border-top: 1px solid #dfe7e7;

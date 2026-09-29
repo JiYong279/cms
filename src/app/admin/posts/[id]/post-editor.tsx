@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useId, useRef, useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import type { JSONContent } from "@tiptap/react";
+import type { Editor, JSONContent } from "@tiptap/react";
 import {
   AlertTriangle,
   ArrowLeft,
@@ -39,11 +39,13 @@ import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
 import { FIX_FOR, fieldsFor, type FixField } from "@/lib/seo-fix";
+import { carryImageCredits, countUnknownImages, permitUnknownImages, permitUnknownImagesInHtml } from "@/lib/image-rights";
 import { imageFiles, uploadImage } from "@/lib/upload-client";
 import { cn } from "@/lib/utils";
 import { markTranslationSynced, restorePosts, savePost, trashPostAndLeave } from "../actions";
 import { aiDraft, aiSourceArticle, aiTranslate } from "../ai-actions";
 import { RichTextEditor } from "./rich-text-editor";
+import { permitUnknownImagesIn } from "./editor/extensions";
 import { Field, Section, inputClass } from "./editor/panel";
 import { PlanningFields } from "./editor/planning-fields";
 import { SeoFixDialog } from "./editor/seo-fix-dialog";
@@ -183,6 +185,8 @@ export function PostEditor({
   const backHref = useReturnTo("/admin");
   // "Fix with AI" from the SEO score: the fields it opens with, while open.
   const [seoFix, setSeoFix] = useState<FixField[] | null>(null);
+  // The editor itself, to mark images confirmed at publishing as allowed.
+  const editorRef = useRef<Editor | null>(null);
   const [replacement, setReplacement] = useState<{ html: string; version: number } | null>(null);
   // The locale the current content was machine-translated from, until it is saved.
   const [translatedFrom, setTranslatedFrom] = useState<Locale | null>(null);
@@ -203,8 +207,11 @@ export function PostEditor({
 
   const effectiveSlug = slugTouched ? slug : slugify(title);
 
-  /** Saves the form; `next` also moves the article to that status (the header's publish buttons). */
-  const save = useCallback((next?: { status: PostStatus; scheduledAt?: string }) => {
+  /**
+   * Saves the form; `next` also moves the article to that status (the header's publish buttons), and
+   * `confirmImages` records that the editor checked the images whose rights were unknown.
+   */
+  const save = useCallback((next?: { status: PostStatus; scheduledAt?: string; confirmImages?: boolean }) => {
     const nextStatus = next?.status ?? status;
     const nextSchedule = next?.scheduledAt ?? scheduledAt;
     setError(null);
@@ -217,8 +224,9 @@ export function PostEditor({
         title,
         slug: effectiveSlug,
         excerpt,
-        contentJson: content.json,
-        contentHtml: content.html,
+        contentJson: next?.confirmImages ? permitUnknownImages(content.json) : content.json,
+        contentHtml: next?.confirmImages ? permitUnknownImagesInHtml(content.html) : content.html,
+        imagesConfirmed: next?.confirmImages ? countUnknownImages(content.html) : 0,
         metaTitle,
         metaDescription,
         focusKeyword,
@@ -239,6 +247,8 @@ export function PostEditor({
       setSlug(result.slug);
       setSlugTouched(true);
       setSavedAt(new Date(result.savedAt));
+      if (next?.confirmImages && editorRef.current) permitUnknownImagesIn(editorRef.current);
+      // Marking them in the editor counts as an edit; what it shows is exactly what was saved.
       setDirty(false);
       setTranslatedFrom(null);
       if (afterSave.current) {
@@ -672,6 +682,7 @@ export function PostEditor({
               <RichTextEditor
                 content={content.json}
                 replacement={replacement}
+                editorRef={editorRef}
                 onChange={edit(setContent)}
                 siteId={site.id}
                 onError={setError}
@@ -960,6 +971,7 @@ export function PostEditor({
           language={t.common.locales[locale]}
           url={publicUrl}
           seoScore={seoScore.score}
+          unknownImages={countUnknownImages(content.html)}
           otherUnpublished={otherUnpublished.map((tab) =>
             fmt(t.editor.publishing.otherUnpublished, {
               language: t.common.locales[tab.locale],
@@ -968,9 +980,9 @@ export function PostEditor({
           )}
           initialWhen={scheduledAt}
           onCancel={() => setPublishOpen(false)}
-          onConfirm={(when) => {
+          onConfirm={(when, confirmImages) => {
             setPublishOpen(false);
-            save(when ? { status: "scheduled", scheduledAt: when } : { status: "published" });
+            save(when ? { status: "scheduled", scheduledAt: when, confirmImages } : { status: "published", confirmImages });
           }}
         />
       )}
@@ -1034,6 +1046,7 @@ function PublishDialog({
   url,
   otherUnpublished,
   seoScore,
+  unknownImages,
   initialWhen,
   onCancel,
   onConfirm,
@@ -1043,16 +1056,19 @@ function PublishDialog({
   url: string;
   otherUnpublished: string[];
   seoScore: number;
+  /** Images nobody has confirmed may be used: publishing needs the editor to confirm them. */
+  unknownImages: number;
   initialWhen: string;
   onCancel: () => void;
   /** `when` is a datetime-local value when scheduling, null to publish now. */
-  onConfirm: (when: string | null) => void;
+  onConfirm: (when: string | null, confirmImages: boolean) => void;
 }) {
   const { t } = useI18n();
   const p = t.editor.publishing;
   const titleId = useId();
   const [later, setLater] = useState(false);
   const [when, setWhen] = useState(initialWhen);
+  const [imagesChecked, setImagesChecked] = useState(false);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCancel();
@@ -1071,7 +1087,7 @@ function PublishDialog({
         onMouseDown={(e) => e.stopPropagation()}
         onSubmit={(e) => {
           e.preventDefault();
-          onConfirm(later ? when : null);
+          onConfirm(later ? when : null, unknownImages > 0 && imagesChecked);
         }}
         role="dialog"
         aria-modal="true"
@@ -1149,6 +1165,19 @@ function PublishDialog({
           </p>
         )}
 
+        {unknownImages > 0 && (
+          <div className="mt-3 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2.5 text-xs leading-relaxed text-amber-800" data-unknown-images>
+            <p className="flex items-start gap-2 font-medium">
+              <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+              {fmt(p.unknownImages, { n: unknownImages })}
+            </p>
+            <label className="mt-2 flex cursor-pointer items-start gap-2">
+              <input type="checkbox" checked={imagesChecked} onChange={(e) => setImagesChecked(e.target.checked)} className="mt-0.5 size-3.5 accent-brand" />
+              <span>{p.confirmImages}</span>
+            </label>
+          </div>
+        )}
+
         {otherUnpublished.map((text) => (
           <p key={text} className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
@@ -1160,7 +1189,7 @@ function PublishDialog({
           <button type="button" onClick={onCancel} className="rounded-lg px-4 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100">
             {t.common.cancel}
           </button>
-          <button type="submit" disabled={later && !when} className={primaryButton}>
+          <button type="submit" disabled={(later && !when) || (unknownImages > 0 && !imagesChecked)} className={primaryButton}>
             {later ? p.confirmLater : p.now}
           </button>
         </div>
@@ -1240,6 +1269,8 @@ function AiDialog({
   const [prompt, setPrompt] = useState("");
   const [copied, setCopied] = useState<"yes" | "manual" | null>(null);
   const [pasted, setPasted] = useState("");
+  // The source version the translation prompt carried: its images' rights and credits go back on the pasted ones.
+  const [sourceHtml, setSourceHtml] = useState("");
 
   useEffect(() => {
     if (!running) return;
@@ -1297,6 +1328,7 @@ function AiDialog({
           return;
         }
         text = translatePrompt({ site, from, to: locale, source: result.source });
+        setSourceHtml(result.source.html);
       } else {
         text = draftPrompt({ site, locale, topic, keyPoints, focusKeyword: keyword, words: DRAFT_WORDS[length], categories });
       }
@@ -1321,7 +1353,7 @@ function AiDialog({
         metaTitle: p.metaTitle,
         metaDescription: p.metaDescription,
         focusKeyword: p.focusKeyword,
-        html: p.html,
+        html: from ? carryImageCredits(p.html, sourceHtml) : p.html,
         // Articles share one category across languages, so a translation leaves it alone.
         categoryId: from ? null : p.categoryId,
       },

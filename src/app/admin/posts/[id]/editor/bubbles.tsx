@@ -26,6 +26,7 @@ import {
   Ungroup,
 } from "lucide-react";
 import { useI18n } from "@/i18n/client";
+import { IMAGE_RIGHTS } from "@/lib/image-rights";
 import { cn } from "@/lib/utils";
 import type { CalloutVariant } from "./extensions";
 import { Divider, IconButton } from "./ui";
@@ -127,8 +128,10 @@ export function ImageBubble({ editor }: { editor: Editor }) {
         ? {
             alt: (e.getAttributes("image").alt as string | undefined) ?? "",
             title: (e.getAttributes("image").title as string | undefined) ?? "",
+            credit: (e.getAttributes("image").credit as string | undefined) ?? "",
+            rights: (e.getAttributes("image").rights as string | undefined) ?? "",
           }
-        : { alt: "", title: "" },
+        : { alt: "", title: "", credit: "", rights: "" },
   });
 
   return (
@@ -161,6 +164,34 @@ export function ImageBubble({ editor }: { editor: Editor }) {
         />
         <IconButton icon={Trash2} label={b.deleteImage} onClick={() => editor.chain().focus().deleteSelection().run()} />
       </label>
+      <div className="flex items-center gap-2 text-xs text-zinc-500">
+        <span className="w-16 shrink-0">{b.source}</span>
+        <select
+          value={attrs.rights}
+          aria-label={b.rights}
+          data-image-rights
+          onChange={(e) => editor.commands.updateAttributes("image", { rights: e.target.value })}
+          className={cn(
+            "rounded-md border px-1.5 py-1 text-xs text-zinc-800 outline-none focus:border-brand",
+            attrs.rights === "unknown" ? "border-amber-400 bg-amber-50" : "border-zinc-200",
+          )}
+        >
+          <option value="">{b.rightsUnset}</option>
+          {IMAGE_RIGHTS.map((r) => (
+            <option key={r} value={r}>
+              {b.rightsOptions[r]}
+            </option>
+          ))}
+        </select>
+        <input
+          value={attrs.credit}
+          aria-label={b.credit}
+          onChange={(e) => editor.commands.updateAttributes("image", { credit: e.target.value })}
+          placeholder={b.creditPlaceholder}
+          className="min-w-0 flex-1 rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-brand"
+        />
+      </div>
+      {attrs.rights === "unknown" && <p className="px-1 text-[11px] leading-snug text-amber-700">{b.unknownHint}</p>}
     </BubbleMenu>
   );
 }

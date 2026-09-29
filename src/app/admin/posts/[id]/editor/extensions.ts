@@ -12,6 +12,35 @@ import Suggestion from "@tiptap/suggestion";
 import { imageFiles } from "@/lib/upload-client";
 import { filterBlocks, type BlockItem } from "./blocks";
 
+/** Images carry who to credit and whether they may be used (lib/image-rights), as data-* attributes. */
+const CreditedImage = Image.extend({
+  addAttributes() {
+    return {
+      ...this.parent?.(),
+      credit: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-credit") ?? "",
+        renderHTML: (attrs) => (attrs.credit ? { "data-credit": attrs.credit } : {}),
+      },
+      rights: {
+        default: "",
+        parseHTML: (el) => el.getAttribute("data-rights") ?? "",
+        renderHTML: (attrs) => (attrs.rights ? { "data-rights": attrs.rights } : {}),
+      },
+    };
+  },
+});
+
+/** Marks every image whose rights were unknown as allowed: the editor confirmed it when publishing. */
+export function permitUnknownImagesIn(editor: Editor) {
+  editor.commands.command(({ tr, state }) => {
+    state.doc.descendants((node, pos) => {
+      if (node.type.name === "image" && node.attrs.rights === "unknown") tr.setNodeMarkup(pos, undefined, { ...node.attrs, rights: "permitted" });
+    });
+    return true;
+  });
+}
+
 export const CALLOUT_VARIANTS = ["info", "success", "warning"] as const;
 export type CalloutVariant = (typeof CALLOUT_VARIANTS)[number];
 
@@ -172,7 +201,7 @@ export function buildExtensions(handlers: {
       link: { openOnClick: false, autolink: true, defaultProtocol: "https" },
       dropcursor: { color: "#16a260", width: 2 },
     }),
-    Image.configure({ allowBase64: false }),
+    CreditedImage.configure({ allowBase64: false }),
     Placeholder.configure({
       placeholder: ({ node }) =>
         node.type.name === "heading" ? handlers.placeholders.heading : handlers.placeholders.paragraph,
