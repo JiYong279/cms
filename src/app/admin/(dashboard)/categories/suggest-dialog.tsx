@@ -162,6 +162,7 @@ function SuggestDialog({ site, existing, titles, aiEnabled, onClose }: Props & {
               onEngine={(e) => (setEngine(e), setError(null))}
               aiEnabled={aiEnabled}
               buildPrompt={() => categoryPlanPrompt({ site, lang, existing, titles, answer: "paste" })}
+              promptKey={lang}
               pasted={pasted}
               onPaste={onPaste}
               pastePlaceholder={s.suggestPaste}
@@ -198,7 +199,7 @@ function SuggestDialog({ site, existing, titles, aiEnabled, onClose }: Props & {
                             {row.nameVi} <span className="font-normal text-zinc-500">/ {row.nameEn}</span>
                           </p>
                         )}
-                        {row.descriptionVi && <p className="mt-2 text-xs leading-relaxed text-zinc-600">{lang === "en" && row.descriptionEn ? row.descriptionEn : row.descriptionVi}</p>}
+                        {row.kind === "new" && row.descriptionVi && <p className="mt-2 text-xs leading-relaxed text-zinc-600">{lang === "en" && row.descriptionEn ? row.descriptionEn : row.descriptionVi}</p>}
                         {row.why && <p className="mt-1 text-xs leading-relaxed text-zinc-500">{row.why}</p>}
                         {row.kind === "merge" && <p className="mt-1 text-xs text-amber-700">{s.mergeHint}</p>}
                       </div>

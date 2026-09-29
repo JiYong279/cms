@@ -23,6 +23,8 @@ export const PLAN_AHEAD_WEEKS = 4;
 export const OUTPUT_MONTHS = 6;
 /** The weeks the average output is taken over. */
 export const AVERAGE_WEEKS = 8;
+/** "Published lately" looks this many days back. */
+export const RECENT_DAYS = 30;
 
 export type OverviewVersion = {
   locale: Locale;
@@ -79,7 +81,10 @@ export function getTopicCoverage(posts: OverviewPost[], categoryIds: string[], t
   return topics.map((categoryId) => {
     const own = posts.filter((p) => (categoryId ? p.categoryId === categoryId : !p.categoryId || !categoryIds.includes(p.categoryId)));
     const live = own.filter(isLiveArticle);
-    const livePillar = live.find((p) => p.pillar);
+    // Two live pillars: the older one is the topic's, so the choice never depends on query order.
+    const livePillar = live
+      .filter((p) => p.pillar)
+      .sort((a, b) => (firstPublishedDay(a, timeZone) ?? "").localeCompare(firstPublishedDay(b, timeZone) ?? "") || a.id.localeCompare(b.id))[0];
     const draftPillar = own.find((p) => p.pillar && !isLiveArticle(p));
     const lastPublished = live.map((p) => firstPublishedDay(p, timeZone)).filter((d): d is string => !!d).sort().at(-1) ?? null;
     const liveCluster = live.filter((p) => p !== livePillar).length;
@@ -108,6 +113,16 @@ export function getMonthlyOutput(posts: OverviewPost[], today: string, timeZone:
   const months = Array.from({ length: OUTPUT_MONTHS }, (_, i) => new Date(Date.UTC(year, month - 1 - (OUTPUT_MONTHS - 1 - i), 1)).toISOString().slice(0, 7));
   const days = posts.map((p) => firstPublishedDay(p, timeZone)).filter((d): d is string => !!d);
   return months.map((m) => ({ month: m, count: days.filter((d) => d.startsWith(m)).length }));
+}
+
+/** Articles first published in the last RECENT_DAYS days (a new language of an old article is not new). */
+export function getRecentCount(posts: OverviewPost[], today: string, timeZone: string) {
+  return posts.filter((p) => {
+    const day = firstPublishedDay(p, timeZone);
+    if (!day) return false;
+    const age = daysBetween(day, today);
+    return age >= 0 && age <= RECENT_DAYS;
+  }).length;
 }
 
 /** Articles first published per week on average over the last AVERAGE_WEEKS full weeks. */

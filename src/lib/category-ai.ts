@@ -149,7 +149,9 @@ export type ReviewedIdea = CategoryIdea & {
  * only). Existing categories no idea continues are returned apart, also as advice.
  */
 export function reviewCategoryPlan(ideas: CategoryIdea[], existing: ExistingCategory[]): { ideas: ReviewedIdea[]; unused: ExistingCategory[] } {
-  const reviewed = ideas.map((idea): ReviewedIdea => {
+  const reviewed = ideas.map((raw): ReviewedIdea => {
+    // Several names may come in one item ("A | B"), from the built-in AI's list too.
+    const idea = { ...raw, from: raw.from.flatMap((f) => f.split("|")).map((f) => f.trim()).filter(Boolean) };
     // An idea named like an existing category continues it, even when "from" was left out.
     const named = existing.filter((c) => same(c.nameVi, idea.nameVi) || same(c.nameEn, idea.nameEn));
     const from = existing.filter((c) => idea.from.some((f) => same(f, c.nameVi) || same(f, c.nameEn)));

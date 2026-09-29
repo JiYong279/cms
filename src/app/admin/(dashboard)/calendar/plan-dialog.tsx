@@ -261,6 +261,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
               onEngine={(e) => (setEngine(e), setError(null))}
               aiEnabled={aiEnabled}
               buildPrompt={buildPrompt}
+              promptKey={JSON.stringify([site.id, locale, topic, count])}
               pasted={pasted}
               onPaste={onPaste}
               pastePlaceholder={p.pastePlaceholder}
@@ -285,12 +286,21 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
                               {dayLabel(day)}
                             </span>
                           )}
-                          {idea.pillar && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 font-semibold text-amber-700 ring-1 ring-amber-200">
-                              <Star className="size-3" />
-                              {p.pillar}
-                            </span>
-                          )}
+                          {/* The overview mark: the team turns it off when the topic already has its pillar. */}
+                          <button
+                            type="button"
+                            data-pillar-toggle
+                            aria-pressed={idea.pillar}
+                            title={p.pillarHint}
+                            onClick={() => update(idea, { pillar: !idea.pillar })}
+                            className={cn(
+                              "inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-semibold ring-1",
+                              idea.pillar ? "bg-amber-50 text-amber-700 ring-amber-200" : "bg-white text-zinc-400 ring-zinc-200 hover:text-zinc-600",
+                            )}
+                          >
+                            <Star className={cn("size-3", idea.pillar && "fill-current")} />
+                            {p.pillar}
+                          </button>
                           {duplicate && (
                             <span className="inline-flex items-center gap-1 text-amber-700">
                               <AlertTriangle className="size-3" />

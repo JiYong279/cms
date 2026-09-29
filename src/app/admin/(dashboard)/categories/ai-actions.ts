@@ -135,7 +135,8 @@ export async function applyCategoryPlan(raw: z.input<typeof ApplyPlanInput>): Pr
         .set({
           names: { vi: r.nameVi, en: r.nameEn },
           slugs: { vi: categorySlug(current, "vi"), en: categorySlug(current, "en") },
-          descriptions: { vi: r.descriptionVi || (current.descriptions.vi ?? ""), en: r.descriptionEn || (current.descriptions.en ?? "") },
+          // The team's introductions stay; the AI's only fills one that is still empty.
+          descriptions: { vi: current.descriptions.vi?.trim() || r.descriptionVi, en: current.descriptions.en?.trim() || r.descriptionEn },
           updatedAt: new Date(),
         })
         .where(and(eq(schema.categories.id, r.id), eq(schema.categories.siteId, site.id)));

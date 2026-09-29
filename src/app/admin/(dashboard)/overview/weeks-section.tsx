@@ -70,7 +70,8 @@ export async function WeeksSection({ siteId, weeks, target, gaps }: Props) {
                   <span className="text-xs text-zinc-500">{fmt(l.item, { has: gap.has.toUpperCase(), missing: gap.missing.toUpperCase() })}</span>
                 </span>
                 <Link
-                  href={`/admin/posts/${gap.postId}?locale=${gap.has}&ai=translate`}
+                  // The missing language's editor, translating from the live one (the editor's own convention).
+                  href={`/admin/posts/${gap.postId}?locale=${gap.missing}&ai=translate`}
                   className="inline-flex shrink-0 items-center gap-1.5 rounded-md border border-brand-light px-2.5 py-1 text-xs font-semibold text-brand hover:bg-brand-soft"
                 >
                   <Languages className="size-3.5" />

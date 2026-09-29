@@ -5,6 +5,7 @@ import {
   getLanguageGaps,
   getMonthlyOutput,
   getNextSteps,
+  getRecentCount,
   getTodo,
   getTopicCoverage,
   getWeekLoad,
@@ -50,6 +51,16 @@ check("an overview being written shows, but the topic still lacks a live one", o
 check("a topic with nothing new for months has gone quiet", !!ops?.needs.includes("quiet") && ops.lastPublished === "2026-05-01");
 check("an empty category needs everything but is not quiet", empty?.needs.join() === "pillar,thin", JSON.stringify(empty));
 check("articles without a category come last and need nothing", coverage.at(-1) === none && none?.live === 1 && none.needs.length === 0);
+
+// A topic with two live pillars always shows the older one, whatever order the database returns.
+const older = post({ categoryId: "two", pillar: true, versions: live("2026-01-05") });
+const newer = post({ categoryId: "two", pillar: true, versions: live("2026-03-05") });
+check("of two live pillars, the older is the topic's", getTopicCoverage([newer, older], ["two"], TODAY, TZ)[0].pillar?.postId === older.id && getTopicCoverage([older, newer], ["two"], TODAY, TZ)[0].pillar?.postId === older.id);
+
+// "Published lately" counts new articles, the way the monthly output does.
+const lateEn = post({ versions: [...live("2025-06-01"), { locale: "en", status: "published", publishedAt: at("2026-09-28"), scheduledAt: null }] });
+check("a new language of an old article is not a new article", getRecentCount([lateEn], TODAY, TZ) === 0);
+check("an article first out within 30 days counts, a future date does not", getRecentCount([post({ versions: live("2026-09-10") }), post({ versions: live("2026-10-05") })], TODAY, TZ) === 1);
 
 const output = getMonthlyOutput(posts, TODAY, TZ);
 check("output covers six months up to this one", output.length === 6 && output[0].month === "2026-04" && output[5].month === "2026-09");

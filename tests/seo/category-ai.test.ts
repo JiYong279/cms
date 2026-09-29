@@ -67,6 +67,9 @@ if (read.ok) {
   check("each idea says what it changes: keep, new, merge, rename", kinds === "keep,new,merge,rename", kinds);
   check("a renamed category is matched by its other name even without 'from'", review.ideas[3].existing[0]?.id === "c2");
   check("categories no idea continues are returned as advice", review.unused.length === 0, JSON.stringify(review.unused));
+  // The built-in AI answers "from" as a list, and may still put several names in one item.
+  const joined = reviewCategoryPlan([{ ...read.ideas[2], from: ["Bảo mật | Tuân thủ"] }], existing);
+  check("names joined with | in one item still mean a merge", joined.ideas[0].kind === "merge" && joined.ideas[0].existing.length === 2, joined.ideas[0].kind);
   const partial = reviewCategoryPlan(read.ideas.slice(0, 2), existing);
   check("…and listed when left out", partial.unused.map((c) => c.id).join() === "c2,c3,c4");
 }

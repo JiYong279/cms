@@ -122,12 +122,24 @@ export async function createPlannedPosts(raw: z.input<typeof CreateInput>): Prom
   );
   if (input.ideas.some((i) => i.categoryId && !siteCategories.has(i.categoryId))) return { ok: false, error: t.posts.errors.invalid };
 
+  // One pillar per topic: a topic that has one (live or being written) keeps it.
+  const withPillar = new Set(
+    (
+      await db
+        .select({ categoryId: schema.posts.categoryId })
+        .from(schema.posts)
+        .where(and(eq(schema.posts.siteId, site.id), eq(schema.posts.pillar, true), isNull(schema.posts.deletedAt)))
+    ).map((p) => p.categoryId),
+  );
+
   const created = await db.transaction(async (tx) => {
     const out: { id: string; title: string }[] = [];
     for (const idea of input.ideas) {
+      const pillar = !!idea.pillar && !(idea.categoryId && withPillar.has(idea.categoryId));
+      if (pillar && idea.categoryId) withPillar.add(idea.categoryId);
       const [post] = await tx
         .insert(schema.posts)
-        .values({ siteId: site.id, authorId: user.id, categoryId: idea.categoryId, pillar: idea.pillar ?? false, plannedFor: idea.plannedFor })
+        .values({ siteId: site.id, authorId: user.id, categoryId: idea.categoryId, pillar, plannedFor: idea.plannedFor })
         .returning();
       const body = outlineBody(idea, input.locale);
       await tx.insert(schema.postTranslations).values({

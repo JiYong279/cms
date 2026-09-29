@@ -12,6 +12,7 @@ import {
   getLanguageGaps,
   getMonthlyOutput,
   getNextSteps,
+  getRecentCount,
   getTodo,
   getTopicCoverage,
   getWeekLoad,
@@ -19,7 +20,7 @@ import {
   type OverviewPost,
   type TodoVersion,
 } from "@/lib/content-overview";
-import { addDays, daysBetween, getDayKey } from "@/lib/days";
+import { addDays, getDayKey } from "@/lib/days";
 import { countImageSuggestions } from "@/lib/image-suggestions";
 import { can } from "@/lib/permissions";
 import { LOCALES } from "@/lib/posts";
@@ -33,9 +34,6 @@ import { CoverageSection } from "./coverage-section";
 import { NextSteps } from "./next-steps";
 import { TodoSection } from "./todo-section";
 import { WeeksSection } from "./weeks-section";
-
-/** "Published lately" on the overview counts this many days back. */
-const RECENT_DAYS = 30;
 
 export async function generateMetadata() {
   const t = await getT();
@@ -81,7 +79,8 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
   }));
   const coverage = getTopicCoverage(overviewPosts, categories.map((c) => c.id), today, timeZone);
   const weeks = getWeekLoad(overviewPosts, today, timeZone);
-  const gaps = getLanguageGaps(overviewPosts);
+  // Writers look after their own articles: what they are asked to translate is theirs.
+  const gaps = getLanguageGaps(seesAll ? overviewPosts : overviewPosts.filter((o) => posts.find((p) => p.id === o.id)?.authorId === user.id));
   const uncategorized = posts.filter((p) => !p.categoryId || !categories.some((c) => c.id === p.categoryId));
   const steps = getNextSteps({
     hasBrief: hasBrief(site.contentBrief),
@@ -95,9 +94,6 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
 
   const live = posts.filter((p) => p.translations.some((tr) => tr.status === "published"));
   const liveIn = (l: Locale) => live.filter((p) => p.translations.some((tr) => tr.locale === l && tr.status === "published")).length;
-  const recent = live.filter((p) =>
-    p.translations.some((tr) => tr.status === "published" && tr.publishedAt && daysBetween(getDayKey(tr.publishedAt, timeZone), today) <= RECENT_DAYS),
-  ).length;
 
   // Writers look after their own articles: the lists below are theirs, the counts above the website's.
   const mine = seesAll ? posts : posts.filter((p) => p.authorId === user.id);
@@ -200,7 +196,8 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
           plan={plan}
         />
         <BriefCard
-          key={site.id}
+          // "Write the brief" links here with ?edit=brief: a new key opens the form on the same page.
+          key={`${site.id}-${params.edit === "brief" ? "edit" : "view"}`}
           siteId={site.id}
           brief={site.contentBrief}
           postsPerWeek={site.postsPerWeek}
@@ -213,7 +210,7 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
           stats={{
             live: live.length,
             liveDetail: LOCALES.map((l) => `${l.toUpperCase()} ${liveIn(l)}`).join(" · "),
-            last30: recent,
+            last30: getRecentCount(overviewPosts, today, timeZone),
             average: getWeeklyAverage(overviewPosts, today, timeZone),
             target: site.postsPerWeek,
           }}

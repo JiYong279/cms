@@ -49,7 +49,11 @@ try {
   expect("with no brief, writing it is the first next step", (await page.$eval("[data-next-steps] li", (li) => li.dataset.step)) === "brief");
   expect("and asking for a weekly target comes next", !!(await page.$('[data-step="target"]')));
 
-  await page.click("[data-brief-edit]");
+  // "Write the brief" in the next steps opens the brief's form, as a person would reach it.
+  await page.click('[data-step="brief"] a');
+  const opened = await page.waitForSelector('textarea[name="audience"]', { visible: true, timeout: 5000 }).catch(() => null);
+  expect("'Write the brief' opens the form", !!opened);
+  if (!opened) await page.click("[data-brief-edit]");
   await page.waitForSelector('textarea[name="audience"]', { visible: true });
   await page.type('textarea[name="audience"]', "Chủ phòng khám thử trình duyệt");
   await page.type('input[name="postsPerWeek"]', "4");

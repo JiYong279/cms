@@ -27,9 +27,12 @@ try {
   s = await admin.call(PAGE, "applyCategoryPlan", [{ siteId: "qubx", create: [idea], rename: [] }]);
   check("a category whose address is taken is refused", s.ok === false && /đã được danh mục khác dùng/.test(s.error), JSON.stringify(s));
 
-  s = await admin.call(PAGE, "applyCategoryPlan", [{ siteId: "qubx", create: [], rename: [{ id: categoryId, ...idea, nameVi: `${NAME} đổi tên`, descriptionVi: "" }] }]);
+  s = await admin.call(PAGE, "applyCategoryPlan", [
+    { siteId: "qubx", create: [], rename: [{ id: categoryId, ...idea, nameVi: `${NAME} đổi tên`, descriptionVi: "AI viết lại phần giới thiệu" }] },
+  ]);
   html = (await admin.req(PAGE)).text;
   check("a renamed category keeps its address, so old links still work", s.ok === true && s.renamed === 1 && html.includes(`${NAME} đổi tên`) && html.includes(">chu-de-thu-e2e-ai<"), JSON.stringify(s));
+  check("…and keeps the introduction the team wrote", html.includes("Giới thiệu thử.") && !html.includes("AI viết lại phần giới thiệu"));
 
   // Sorting articles into categories.
   const r = await admin.submit("/admin", 'name="siteId"', { siteId: "qubx" });

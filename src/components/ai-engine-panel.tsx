@@ -13,6 +13,8 @@ type Props = {
   aiEnabled: boolean;
   /** Builds the prompt to copy, or returns null when the form is not ready (it shows its own error). */
   buildPrompt: () => string | null;
+  /** What the prompt was built from: a prompt copied for other inputs is no longer shown. */
+  promptKey: string;
   pasted: string;
   onPaste: (value: string) => void;
   pastePlaceholder: string;
@@ -25,20 +27,21 @@ const inputClass =
  * "Your Claude" or the built-in AI: the switch, and for "Your Claude" the copy-prompt and paste-answer
  * steps. The dialog around it runs the built-in AI and reads the pasted answer.
  */
-export function AiEnginePanel({ engine, onEngine, aiEnabled, buildPrompt, pasted, onPaste, pastePlaceholder }: Props) {
+export function AiEnginePanel({ engine, onEngine, aiEnabled, buildPrompt, promptKey, pasted, onPaste, pastePlaceholder }: Props) {
   const { t } = useI18n();
   const a = t.editor.ai;
-  const [prompt, setPrompt] = useState("");
-  const [copied, setCopied] = useState<"yes" | "manual" | null>(null);
+  const [copiedPrompt, setCopiedPrompt] = useState<{ key: string; text: string; copied: "yes" | "manual" } | null>(null);
+  const current = copiedPrompt?.key === promptKey ? copiedPrompt : null;
+  const prompt = current?.text ?? "";
+  const copied = current?.copied ?? null;
 
   function copyPrompt() {
     const text = buildPrompt();
     if (!text) return;
-    setPrompt(text);
     navigator.clipboard.writeText(text).then(
-      () => setCopied("yes"),
+      () => setCopiedPrompt({ key: promptKey, text, copied: "yes" }),
       // No clipboard access (e.g. a plain-http address): the prompt is shown to copy by hand.
-      () => setCopied("manual"),
+      () => setCopiedPrompt({ key: promptKey, text, copied: "manual" }),
     );
   }
 

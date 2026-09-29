@@ -61,13 +61,25 @@ try {
   const row = (await admin.req(URL_)).text.match(new RegExp(`<tr[^>]*data-topic="${categoryId}"[\\s\\S]*?</tr>`))?.[0] ?? "";
   check("the topic shows its pillar as being written", row.includes("Đang viết") && row.includes(`/admin/posts/${postId}`), row.slice(0, 300));
 
-  // "Plan with AI" keeps the overview article of the cluster as the pillar.
+  // "Plan with AI" keeps the overview article of the cluster as the pillar, unless its topic has one.
+  const idea = { title: "E2E planned overview", focusKeyword: "", pillar: true, plannedFor: "2031-06-02", why: "", outline: ["A"] };
   s = await admin.call("/admin/calendar", "createPlannedPosts", [
-    { siteId: "qubx", locale: "vi", ideas: [{ title: "E2E planned overview", focusKeyword: "", categoryId, pillar: true, plannedFor: "2031-06-02", why: "", outline: ["A"] }] },
+    { siteId: "qubx", locale: "vi", ideas: [{ ...idea, categoryId: null }, { ...idea, title: "E2E second overview", categoryId }] },
   ]);
   if (s.ok) created.push(...s.ids);
-  r = s.ok ? await admin.req(`/admin/posts/${s.ids[0]}?locale=vi`) : { text: "" };
-  check("a planned overview article is saved as the pillar", s.ok === true && /\\"pillar\\":true/.test(r.text), JSON.stringify(s).slice(0, 200));
+  const planned = s.ok ? await Promise.all(s.ids.map(async (id) => (await admin.req(`/admin/posts/${id}?locale=vi`)).text)) : ["", ""];
+  check("a planned overview article is saved as the pillar", s.ok === true && /\\"pillar\\":true/.test(planned[0]), JSON.stringify(s).slice(0, 200));
+  check("…but a topic that already has its pillar does not get a second one", s.ok === true && /\\"pillar\\":false/.test(planned[1]));
+
+  // An article live in one language only: "Translate" opens the missing language.
+  r = await admin.submit("/admin", 'name="siteId"', { siteId: "qubx" });
+  const liveId = r.location?.match(/posts\/([0-9a-f-]{36})/)?.[1];
+  if (liveId) created.push(liveId);
+  s = await admin.call(`/admin/posts/${liveId}?locale=vi`, "savePost", [
+    { ...draft, postId: liveId, status: "published", title: "E2E only in Vietnamese", categoryId: null },
+  ]);
+  const overview = (await admin.req(URL_)).text;
+  check("'Translate' opens the language the article is missing", s.ok === true && overview.includes(`/admin/posts/${liveId}?locale=en&amp;ai=translate`), JSON.stringify(s).slice(0, 200));
 } finally {
   await destroyPosts(admin, created);
   await admin.req(URL_);

@@ -149,6 +149,7 @@ function PlaceDialog({ site, categories, articles: all, aiEnabled, onClose }: Pr
               onEngine={(e) => (setEngine(e), setError(null))}
               aiEnabled={aiEnabled}
               buildPrompt={() => placementPrompt({ site, lang, categories: names, articles: numbered, answer: "paste" })}
+              promptKey={lang}
               pasted={pasted}
               onPaste={onPaste}
               pastePlaceholder={s.placePaste}
