@@ -57,6 +57,21 @@ function seoFields(properties) {
   return Object.fromEntries(Object.keys(properties).map((k) => [k, values[k] ?? `[AI] ${k}`]));
 }
 
+/** "Plan with AI": as many ideas as asked for, the first one the overview. */
+function contentPlan(prompt, properties) {
+  const count = Number(prompt.match(/(?:một cụm|cluster of) (d+)/)?.[1] ?? 3);
+  const categories = properties.ideas.items.properties.category?.enum;
+  const ideas = Array.from({ length: count }, (_, i) => ({
+    title: `[AI] Bài kế hoạch ${i + 1}`,
+    keyword: `từ khoá ${i + 1}`,
+    ...(categories ? { category: categories[0] } : {}),
+    pillar: i === 0,
+    why: "Chủ phòng khám đang tìm câu trả lời này.",
+    outline: ["Mục một", "Mục hai", "Mục ba"],
+  }));
+  return { ideas };
+}
+
 function sse(res, events) {
   res.writeHead(200, { "content-type": "text/event-stream", "cache-control": "no-cache" });
   for (const [event, data] of events) res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
@@ -80,6 +95,8 @@ export function startFakeAnthropic() {
       const input =
         tool?.name === "seo_fields"
           ? seoFields(tool.input_schema.properties)
+          : tool?.name === "content_plan"
+            ? contentPlan(prompt, tool.input_schema.properties)
           : request.system?.startsWith("You translate")
             ? translation(prompt)
             : draft(prompt, categories);

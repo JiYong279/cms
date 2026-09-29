@@ -2,6 +2,17 @@ import { marked } from "marked";
 import type { Locale } from "@/db/schema";
 import { siteBrief } from "./ai-brief";
 import { SOURCE_RULES } from "./ai-sources";
+import { imageSuggestionHtml } from "./image-suggestions";
+
+/** Where the draft should have pictures: the team replaces each suggestion with a real image. */
+const IMAGE_RULES = {
+  vi: `Gợi ý ảnh: chèn 2–4 gợi ý ảnh ở chỗ ảnh giúp người đọc hiểu nhanh hơn, mỗi gợi ý một dòng riêng:
+> [!IMAGE] ảnh nên có gì | mô tả ảnh (alt) cho người khiếm thị | chú thích ngắn dưới ảnh
+Ưu tiên ảnh chụp thật tại phòng khám, spa, màn hình phần mềm, hoặc sơ đồ vẽ từ số liệu (ghi nguồn số liệu). Không gợi ý ảnh trước/sau điều trị hay ảnh của người thật có thể nhận ra.`,
+  en: `Image suggestions: add 2–4 image suggestions where a picture helps readers understand faster, each on its own line:
+> [!IMAGE] what the image should show | description (alt) for screen readers | short caption under it
+Prefer real photos at the clinic or spa, software screens, or diagrams drawn from figures (credit the figures). Never suggest before/after treatment photos or recognisable real people.`,
+};
 
 /**
  * Writing with the person's own Claude (or any chat assistant) instead of the CMS's API:
@@ -105,6 +116,8 @@ export function draftPrompt(input: {
         "",
         SOURCE_RULES.vi,
         "",
+        IMAGE_RULES.vi,
+        "",
         RULES.vi,
         "",
         FORMAT.vi(input.categories),
@@ -121,6 +134,8 @@ export function draftPrompt(input: {
         "Clear, warm, professional voice; prefer concrete examples. Do not invent statistics, prices, laws or regulations; when a point depends on a regulation, tell readers to check the current text. End with a TIP box that sums up the key point.",
         "",
         SOURCE_RULES.en,
+        "",
+        IMAGE_RULES.en,
         "",
         RULES.en,
         "",
@@ -149,6 +164,10 @@ export function translatePrompt(input: {
       (vi
         ? "Giữ mọi link và nguồn tham khảo, viết thành [chữ đã dịch](đường dẫn giữ nguyên); không đổi, không bỏ đường dẫn nào."
         : "Keep every link and source, written as [translated text](same address); never change or drop an address."),
+    /data-image-suggestion/.test(s.html) &&
+      (vi
+        ? "Giữ mọi gợi ý ảnh (<div data-image-suggestion>), viết lại thành > [!IMAGE] ảnh nên có gì | mô tả ảnh | chú thích, dịch cả ba phần."
+        : "Keep every image suggestion (<div data-image-suggestion>), rewritten as > [!IMAGE] what it should show | description | caption, all three translated."),
     /data-youtube-video/.test(s.html) &&
       (vi
         ? "Giữ nguyên mọi video: chép nguyên thẻ <div data-youtube-video>…</div> vào đúng vị trí."
@@ -242,6 +261,11 @@ export function parsePastedArticle(text: string, categories: Category[]): { ok: 
 
   let html = marked.parse(src, { gfm: true, breaks: false, async: false });
   // > [!TIP] boxes become the editor's callouts.
+  // > [!IMAGE] what | alt | caption: a suggested image, replaced by a real one in the editor.
+  html = html.replace(/<blockquote>\s*<p>\[!IMAGE\]\s*([\s\S]*?)<\/p>\s*<\/blockquote>/gi, (_, body: string) => {
+    const [description = "", alt = "", caption = ""] = body.replace(/<br\s*\/?>/g, " ").split("|");
+    return imageSuggestionHtml({ description, alt, caption });
+  });
   html = html.replace(
     /<blockquote>\s*<p>\[!(NOTE|TIP|IMPORTANT|WARNING|CAUTION)\]\s*(?:<br\s*\/?>)?\s*([\s\S]*?)<\/blockquote>/gi,
     (_, kind: string, rest: string) => {

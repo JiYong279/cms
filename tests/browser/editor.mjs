@@ -82,6 +82,9 @@ try {
   await page.keyboard.type("Trước");
   await page.keyboard.press("Tab");
   await page.keyboard.type("Sau");
+  // A table gets a title from its bubble: the website shows it as <caption>.
+  await page.waitForSelector("[data-table-caption]", { visible: true });
+  await page.type("[data-table-caption]", "So sánh trước và sau");
   await shot(page, "03-table-bubble");
 
   // Continue after the table
@@ -184,6 +187,7 @@ try {
   log("qubx status:", res.status());
   const found = await qubx.evaluate(() => ({
     table: !!document.querySelector("article table"),
+    caption: document.querySelector("article table caption")?.textContent?.trim(),
     callout: !!document.querySelector("article aside.rounded-2xl"),
     youtube: !!document.querySelector('article iframe[src*="youtube-nocookie.com/embed/dQw4w9WgXcQ"]'),
     colored: !!document.querySelector('article span[style*="color"]'),
@@ -192,6 +196,7 @@ try {
   expect("editor keeps heading, colour, table, callout and video", ["\"level\":2", "\"color\":\"#0a6b45\"", "\"type\":\"table\"", "\"type\":\"callout\"", "\"src\":\"https://www.youtube.com"].every((s) => JSON.stringify(json).includes(s)));
   expect("Qub-X shows the section in its table of contents", /Phần một/.test(found.toc ?? ""));
   expect("Qub-X renders the table", found.table);
+  expect("Qub-X gives the table its title as a caption", found.caption === "So sánh trước và sau", found.caption);
   expect("Qub-X renders the callout", found.callout);
   expect("Qub-X renders the YouTube video", found.youtube);
   expect("Qub-X renders the coloured text", found.colored);

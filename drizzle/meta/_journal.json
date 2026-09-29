@@ -43,6 +43,13 @@
       "when": 1790407030495,
       "tag": "0005_editorial_planning",
       "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790651458886,
+      "tag": "0006_cover_image_alt",
+      "breakpoints": true
     }
   ]
 }

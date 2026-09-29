@@ -10,6 +10,7 @@ import { CalloutBubble, ImageBubble, TableBubble, TextBubble } from "./editor/bu
 import { buildExtensions, type SlashState } from "./editor/extensions";
 import { SlashMenu } from "./editor/slash-menu";
 import { Toolbar } from "./editor/toolbar";
+import { StockDialog } from "./editor/stock-dialog";
 import { UrlDialog, type UrlDialogConfig } from "./editor/url-dialog";
 
 type Props = {
@@ -20,17 +21,34 @@ type Props = {
   editable?: boolean;
   /** Replaces the whole document with this HTML (e.g. an AI draft) each time `version` changes. */
   replacement?: { html: string; version: number } | null;
+  /** The article's language: stock photo searches use it. */
+  locale: "vi" | "en";
+  /** Receives the editor once it exists, for changes made from outside (confirming image rights). */
+  editorRef?: React.RefObject<Editor | null>;
 };
 
 const YOUTUBE_URL = /^(https?:\/\/)?(www\.|m\.)?(youtube\.com\/(watch\?|shorts\/|embed\/)|youtu\.be\/)\S+$/;
 
-export function RichTextEditor({ content, onChange, siteId, onError, editable = true, replacement }: Props) {
+export function RichTextEditor({ content, onChange, siteId, locale, onError, editable = true, replacement, editorRef }: Props) {
   const { t } = useI18n();
   const [uploading, setUploading] = useState(0);
   const [slash, setSlash] = useState<SlashState | null>(null);
   const [linkOpen, setLinkOpen] = useState(false);
   const [dialog, setDialog] = useState<UrlDialogConfig | null>(null);
   const fileInputId = useId();
+  // The image suggestion waiting for the file being picked, to put the upload in its place.
+  const [suggestionAt, setSuggestionAt] = useState<number | null>(null);
+
+  // The stock photo picker: for an image suggestion (its position) or the cursor (null).
+  const [stock, setStock] = useState<{ pos: number | null; query: string } | null>(null);
+
+  /** Puts a real image where a suggestion was, with the suggestion's description and caption. */
+  function replaceSuggestion(editor: Editor, pos: number, image: { src: string; width?: number; height?: number; rights: string; credit?: string }) {
+    const node = editor.state.doc.nodeAt(pos);
+    if (!node || node.type.name !== "imageSuggestion") return;
+    const attrs = { ...image, alt: node.attrs.alt as string, title: node.attrs.caption as string };
+    editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, { type: "image", attrs }).run();
+  }
 
   /** Uploads images one by one and inserts each where the paste or drop happened. */
   async function insertImages(editor: Editor, files: File[], at?: number) {
@@ -39,7 +57,7 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
       setUploading((n) => n + 1);
       try {
         const image = await uploadImage(file, { siteId, networkError: t.editor.upload.network });
-        const node = { type: "image", attrs: { src: image.url, alt: "", width: image.width, height: image.height } };
+        const node = { type: "image", attrs: { src: image.url, alt: "", width: image.width, height: image.height, rights: "own" } };
         const target = Math.min(pos ?? editor.state.selection.to, editor.state.doc.content.size);
         editor.chain().focus().insertContentAt(target, node).run();
         pos = editor.state.selection.to;
@@ -51,8 +69,26 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
     }
   }
 
+  /** Uploads one image into the place of an image suggestion. */
+  async function uploadInto(editor: Editor, file: File, pos: number) {
+    setUploading((n) => n + 1);
+    try {
+      const image = await uploadImage(file, { siteId, networkError: t.editor.upload.network });
+      replaceSuggestion(editor, pos, { src: image.url, width: image.width, height: image.height, rights: "own" });
+    } catch (error) {
+      onError(error instanceof Error ? error.message : t.editor.upload.failed);
+    } finally {
+      setUploading((n) => n - 1);
+    }
+  }
+
   const ui: EditorUi = {
-    pickImage: () => document.getElementById(fileInputId)?.click(),
+    pickStock: () => setStock({ pos: null, query: "" }),
+    pickImage: () => {
+      // A suggestion whose file picker was cancelled must not catch this upload.
+      setSuggestionAt(null);
+      document.getElementById(fileInputId)?.click();
+    },
     promptImageUrl: (editor) =>
       setDialog({
         title: t.editor.urlDialog.imageTitle,
@@ -60,7 +96,7 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
         placeholder: t.editor.urlDialog.imagePlaceholder,
         withAlt: true,
         validate: (url) => (/^https?:\/\/\S+$/.test(url) ? null : t.editor.urlDialog.imageInvalid),
-        onSubmit: (src, alt) => editor.chain().focus().setImage({ src, alt }).run(),
+        onSubmit: (src, alt) => editor.chain().focus().insertContent({ type: "image", attrs: { src, alt, rights: "unknown" } }).run(),
       }),
     promptYoutube: (editor) =>
       setDialog({
@@ -78,6 +114,25 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
     editable,
     extensions: buildExtensions({
       onFiles: (e, files, at) => void insertImages(e, files, at),
+      onSuggestion: (e, pos, action) => {
+        if (action === "stock") {
+          setStock({ pos, query: (e.state.doc.nodeAt(pos)?.attrs.description as string | undefined) ?? "" });
+          return;
+        }
+        if (action === "upload") {
+          setSuggestionAt(pos);
+          document.getElementById(fileInputId)?.click();
+          return;
+        }
+        setDialog({
+          title: t.editor.urlDialog.imageTitle,
+          description: t.editor.urlDialog.imageDescription,
+          placeholder: t.editor.urlDialog.imagePlaceholder,
+          validate: (url) => (/^https?:\/\/\S+$/.test(url) ? null : t.editor.urlDialog.imageInvalid),
+          // Linked from elsewhere: nobody has checked yet whether it may be used.
+          onSubmit: (src) => replaceSuggestion(e, pos, { src, rights: "unknown" }),
+        });
+      },
       onSlashState: setSlash,
       onSlashSelect: (item, e) => item.run(e, ui),
       onOpenLink: () => setLinkOpen(true),
@@ -94,8 +149,15 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
 
   // Parsed by the editor like a paste, so anything it does not support is dropped; onUpdate reports it.
   useEffect(() => {
-    if (editor && replacement) editor.commands.setContent(replacement.html);
+    if (!editor || !replacement) return;
+    // After React's commit: blocks drawn by React (image suggestions) cannot render inside it.
+    const timer = setTimeout(() => editor.commands.setContent(replacement.html), 0);
+    return () => clearTimeout(timer);
   }, [editor, replacement]);
+
+  useEffect(() => {
+    if (editorRef) editorRef.current = editor;
+  }, [editor, editorRef]);
 
   const toolbar = editor && (
     <Toolbar
@@ -132,12 +194,29 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
         onChange={(e) => {
           const files = imageFiles(e.target.files);
           e.target.value = "";
-          if (editor && files.length) void insertImages(editor, files);
+          const at = suggestionAt;
+          setSuggestionAt(null);
+          if (editor && files.length && at !== null) void uploadInto(editor, files[0], at);
+          else if (editor && files.length) void insertImages(editor, files);
         }}
       />
       <EditorContent editor={editor} className="mt-6" />
       {editor && <SlashMenu editor={editor} state={slash} />}
       {dialog && <UrlDialog config={dialog} onClose={() => setDialog(null)} />}
+      {stock && editor && (
+        <StockDialog
+          siteId={siteId}
+          locale={locale}
+          initialQuery={stock.query}
+          onClose={() => setStock(null)}
+          onPick={(image) => {
+            const attrs = { src: image.url, width: image.width, height: image.height, rights: "stock", credit: image.credit };
+            if (stock.pos !== null) replaceSuggestion(editor, stock.pos, attrs);
+            else editor.chain().focus().insertContent({ type: "image", attrs: { ...attrs, alt: image.alt } }).run();
+            setStock(null);
+          }}
+        />
+      )}
     </div>
   );
 }

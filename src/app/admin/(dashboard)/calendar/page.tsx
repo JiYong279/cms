@@ -1,16 +1,18 @@
 import Link from "next/link";
-import { count, isNull } from "drizzle-orm";
+import { count, eq, isNull } from "drizzle-orm";
 import { ChevronLeft, ChevronRight } from "lucide-react";
 import { getDb, schema } from "@/db";
 import type { Locale, PostStatus } from "@/db/schema";
 import { PostsLayoutSwitch } from "@/components/posts-layout-switch";
 import { getT, getTimeZone } from "@/i18n/server";
+import { aiConfigured } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
 import { can, canEditPost, isLive } from "@/lib/permissions";
 import { publishDuePosts } from "@/lib/scheduled";
 import { cn } from "@/lib/utils";
 import { NewPostButton } from "../new-post-button";
 import { EditorialCalendar, type CalendarEntry } from "./editorial-calendar";
+import { PlanWithAiButton, type PlanSite } from "./plan-dialog";
 import { MONTH_PATTERN, getDayKey, getMonthGrid, getMonthLabel, getWeekdayLabels, shiftMonth } from "./month-grid";
 
 export async function generateMetadata() {
@@ -126,6 +128,35 @@ export default async function CalendarPage({ searchParams }: PageProps<"/admin/c
       });
     }
   }
+  // "Plan with AI": each website's categories and the titles a plan must not repeat.
+  const canPlan = can(user.role, "posts.create");
+  const planSites: PlanSite[] = [];
+  if (canPlan) {
+    const [allCategories, titles] = await Promise.all([
+      db.select().from(schema.categories),
+      db
+        .select({ siteId: schema.postTranslations.siteId, locale: schema.postTranslations.locale, title: schema.postTranslations.title })
+        .from(schema.postTranslations)
+        .innerJoin(schema.posts, eq(schema.posts.id, schema.postTranslations.postId))
+        .where(isNull(schema.posts.deletedAt)),
+    ]);
+    for (const s of sites) {
+      const own = titles.filter((r) => r.siteId === s.id && r.title.trim());
+      planSites.push({
+        id: s.id,
+        name: s.name,
+        baseUrl: s.baseUrl,
+        defaultLocale: s.defaultLocale,
+        categories: allCategories
+          .filter((c) => c.siteId === s.id)
+          .sort((a, b) => a.position - b.position)
+          .map((c) => ({ id: c.id, names: c.names })),
+        titles: { vi: own.filter((r) => r.locale === "vi").map((r) => r.title), en: own.filter((r) => r.locale === "en").map((r) => r.title) },
+      });
+    }
+  }
+  const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 24 * 60 * 60_000).toISOString().slice(0, 10);
+
   // Only what the grid shows, plus the drafts still waiting for a day.
   const shown = entries.filter((e) => e.day === null || (e.day >= firstDay && e.day <= lastDay));
 
@@ -138,6 +169,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/admin/c
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <PostsLayoutSwitch current="calendar" site={site} />
+          {canPlan && <PlanWithAiButton sites={planSites} defaultSiteId={site} startDay={tomorrow} aiEnabled={aiConfigured()} />}
           <NewPostButton
             sites={sites.map((s) => ({ id: s.id, name: s.name, baseUrl: s.baseUrl, posts: postCounts.get(s.id) ?? 0 }))}
             defaultSiteId={site}
