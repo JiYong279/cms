@@ -11,7 +11,7 @@ mention Qub-X at most once, near the end, and never as a hard sell.`,
 };
 
 /** The parts of a website's content brief. */
-export const BRIEF_FIELDS = ["audience", "goal", "offering", "voice", "avoid", "notes"] as const;
+export const BRIEF_FIELDS = ["audience", "goal", "offering", "voice", "avoid", "framework", "notes"] as const;
 export type BriefField = (typeof BRIEF_FIELDS)[number];
 export type ContentBrief = Partial<Record<BriefField, string>>;
 export const MAX_BRIEF_FIELD_CHARS = 1000;
@@ -26,6 +26,7 @@ const BRIEF_LABELS: Record<BriefField, string> = {
   offering: "What articles lead readers to",
   voice: "Voice",
   avoid: "Never write about or do",
+  framework: "Preferred article structure",
   notes: "Other notes",
 };
 

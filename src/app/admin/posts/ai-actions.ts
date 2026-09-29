@@ -9,6 +9,7 @@ import { AiError, DRAFT_LENGTHS, draftArticle, fixSeoFields, translateArticle, t
 import { AI_DAILY_LIMIT, getAiRunsToday } from "@/lib/ai-usage";
 import { requireUser, type CurrentUser } from "@/lib/auth";
 import { categoryName } from "@/lib/categories";
+import { getLinkTargets } from "@/lib/link-targets";
 import { canEditPost, canEditTranslation } from "@/lib/permissions";
 import { AI_FIELDS, type AiField } from "@/lib/seo-fix";
 import { fmt } from "@/i18n";
@@ -27,6 +28,8 @@ const DraftInput = z.object({
   keyPoints: z.string().trim().max(3000),
   focusKeyword: z.string().trim().max(100),
   length: z.enum(Object.keys(DRAFT_LENGTHS) as [keyof typeof DRAFT_LENGTHS]),
+  /** The article is its topic's pillar (the editor's switch, saved or not). */
+  pillar: z.boolean(),
 });
 
 const SourceInput = z.object({ postId: z.uuid(), from: localeSchema });
@@ -108,7 +111,8 @@ export async function aiDraft(raw: z.input<typeof DraftInput>): Promise<AiResult
   if ("error" in loaded) return { ok: false, error: loaded.error as string };
 
   try {
-    const article = await draftArticle({ ...input, siteId: loaded.post.siteId, site: loaded.site });
+    const links = await getLinkTargets({ siteId: loaded.post.siteId, locale: input.locale, excludePostId: input.postId, categoryId: loaded.post.categoryId });
+    const article = await draftArticle({ ...input, kind: input.pillar ? "pillar" : "cluster", links, siteId: loaded.post.siteId, site: loaded.site });
     const category = loaded.categories.find((c) => categoryName(c, input.locale) === article.category);
     await logActivity({
       userId: user.id,

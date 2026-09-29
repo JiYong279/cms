@@ -36,6 +36,7 @@ import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import type { ArticleFields, DraftLength } from "@/lib/ai";
 import type { BriefSite } from "@/lib/ai-brief";
+import type { LinkTarget } from "@/lib/ai-seo";
 import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste";
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
@@ -76,6 +77,8 @@ type Props = {
   history: { at: Date; who: string; summary: string }[];
   /** ANTHROPIC_API_KEY is set, so the AI assistant can run. */
   aiEnabled: boolean;
+  /** The website's live articles in this language, for AI drafts to link to. */
+  linkTargets: LinkTarget[];
   /** Opened from the other language's "translate into this one": start with the AI dialog translating. */
   openAi: "translate" | null;
   aiEngine: "own" | "builtin" | null;
@@ -145,6 +148,7 @@ export function PostEditor({
   trashed,
   history,
   aiEnabled,
+  linkTargets,
   authorHasProfile,
   timeZone,
   openAi,
@@ -409,6 +413,7 @@ export function PostEditor({
     categoryId: categoryId || null,
     coverImageUrl: coverImageUrl.trim() || null,
     coverImageAlt,
+    pillar,
     authorHasProfile,
     translationInSync: !!otherVersion?.status && !otherVersion.stale && !locales.find((tab) => tab.locale === locale)?.stale,
     siteHost: new URL(site.baseUrl).host,
@@ -951,6 +956,8 @@ export function PostEditor({
           categories={categories}
           source={otherVersion ? { locale: otherVersion.locale, exists: !!otherVersion.status } : null}
           enabled={aiEnabled}
+          pillar={pillar}
+          linkTargets={linkTargets}
           hasContent={!!title.trim() || countWords(content.html) > 0}
           dirty={dirty}
           initialKeyword={focusKeyword}
@@ -1241,6 +1248,8 @@ function AiDialog({
   categories,
   source,
   enabled,
+  pillar,
+  linkTargets,
   hasContent,
   dirty,
   initialKeyword,
@@ -1259,6 +1268,9 @@ function AiDialog({
   /** The other language: where a translation comes from. */
   source: { locale: Locale; exists: boolean } | null;
   enabled: boolean;
+  /** The article is its topic's pillar: drafted long and covering the whole topic. */
+  pillar: boolean;
+  linkTargets: LinkTarget[];
   hasContent: boolean;
   /** This version has changes not saved yet (translating it out saves them first). */
   dirty: boolean;
@@ -1287,7 +1299,7 @@ function AiDialog({
   const [topic, setTopic] = useState(initialTopic);
   const [keyPoints, setKeyPoints] = useState(initialKeyPoints);
   const [keyword, setKeyword] = useState(initialKeyword);
-  const [length, setLength] = useState<DraftLength>("medium");
+  const [length, setLength] = useState<DraftLength>(pillar ? "long" : "medium");
   const [error, setError] = useState<string | null>(null);
   const [running, startRunning] = useTransition();
   const [seconds, setSeconds] = useState(0);
@@ -1332,7 +1344,7 @@ function AiDialog({
     startRunning(async () => {
       const result = from
         ? await aiTranslate({ postId, from, to: locale })
-        : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length });
+        : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length, pillar });
       if (!result.ok) setError(result.error);
       else onDone(result.article, from);
     });
@@ -1356,7 +1368,17 @@ function AiDialog({
         text = translatePrompt({ site, from, to: locale, source: result.source });
         setSourceHtml(result.source.html);
       } else {
-        text = draftPrompt({ site, locale, topic, keyPoints, focusKeyword: keyword, words: DRAFT_WORDS[length], categories });
+        text = draftPrompt({
+          site,
+          locale,
+          topic,
+          keyPoints,
+          focusKeyword: keyword,
+          words: DRAFT_WORDS[length],
+          categories,
+          kind: pillar ? "pillar" : "cluster",
+          links: linkTargets,
+        });
       }
       setPrompt(text);
       try {

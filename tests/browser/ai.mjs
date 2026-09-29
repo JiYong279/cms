@@ -103,7 +103,12 @@ try {
   const draftRequest = requests.at(-1);
   expect("the prompt carries the topic, key points and language", /Topic: phần mềm EMR/.test(draftRequest.messages[0].content) && /Chi phí/.test(draftRequest.messages[0].content) && /Write in Vietnamese/.test(draftRequest.system));
   expect("the built-in AI must link its sources, official first, and never invent links", ["Sources (required)", "moh.gov.vn", "leave the fact out"].every((s) => draftRequest.system.includes(s)));
-  expect("the model must answer through the article tool", draftRequest.tool_choice?.name === "article" && draftRequest.stream === true);
+  expect("the built-in AI writes for search: answering opening, question headings, FAQ", ["Optimise for Google", "first sentence answers", "Frequently asked questions"].every((s) => draftRequest.system.includes(s)));
+  expect(
+    "the draft gets the website's live articles to link to, by their public address",
+    /Internal links: add 2–3 links/.test(draftRequest.messages[0].content) && /— https:\/\/www\.qub-x\.com\/vi\/blog\//.test(draftRequest.messages[0].content),
+  );
+  expect("the model must answer through the article tool",draftRequest.tool_choice?.name === "article" && draftRequest.stream === true);
   const offered = draftRequest.tools[0].input_schema.properties.category?.enum ?? [];
   const picked = await page.$$eval("aside select", (selects) => {
     const s = selects.find((x) => [...x.options].some((o) => o.text === "Chưa phân loại"));

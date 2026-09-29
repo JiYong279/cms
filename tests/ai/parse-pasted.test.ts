@@ -78,9 +78,11 @@ const prompt = draftPrompt({
   focusKeyword: "",
   words: 1200,
   categories,
+  kind: "cluster",
+  links: [],
 });
 check("the prompt lists the categories and the format", prompt.includes("Vận hành phòng khám | Hồ sơ bệnh án điện tử (EMR)") && prompt.includes("metaDescription:") && prompt.includes("> [!TIP]"));
-check("the prompt leaves out empty options", !prompt.includes("Các ý cần có") && !prompt.includes("Từ khoá chính:"));
+check("the prompt leaves out empty options", !prompt.includes("Các ý cần có:") &&!prompt.includes("Từ khoá chính:"));
 
 const FENCE = "`".repeat(3);
 check("the prompt asks for the article in one code block (chat apps give it a Copy button)", prompt.includes(`MỘT khối code ${FENCE}markdown`));

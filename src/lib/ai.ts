@@ -2,6 +2,7 @@ import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { Locale } from "@/db/schema";
 import { siteBrief, type BriefSite, type ContentBrief } from "./ai-brief";
+import { linkRules, seoWritingRules, type ArticleKind, type LinkTarget } from "./ai-seo";
 import { SOURCE_RULES_NO_BROWSING } from "./ai-sources";
 import {
   MAX_CATEGORY_IDEAS,
@@ -153,6 +154,9 @@ export async function draftArticle(input: {
   keyPoints: string;
   focusKeyword: string;
   length: DraftLength;
+  kind: ArticleKind;
+  /** The website's live articles the draft may link to. */
+  links: LinkTarget[];
 }): Promise<ArticleFields> {
   if (!aiConfigured()) throw new AiError("not_configured");
   const system = `You write blog articles for a company website.
@@ -162,13 +166,15 @@ short paragraphs and lists over generic statements. Do not invent statistics, pr
 regulations; when a point depends on a regulation, say readers should check the current text.
 ${glossaryText(input.site)}
 ${BODY_HTML_RULES}
+${seoWritingRules("en", input.kind)}
 ${SOURCE_RULES_NO_BROWSING}`;
   const prompt = [
     `Write an article of about ${DRAFT_LENGTHS[input.length]} words.`,
     `Topic: ${input.topic}`,
     input.keyPoints && `Points to cover:\n${input.keyPoints}`,
     input.focusKeyword && `Main search phrase: ${input.focusKeyword}`,
-    "End with a short conclusion, for example in a success callout.",
+    linkRules("en", input.links, input.kind),
+    "Just before the frequently asked questions, add a short conclusion in a success callout.",
   ]
     .filter(Boolean)
     .join("\n\n");

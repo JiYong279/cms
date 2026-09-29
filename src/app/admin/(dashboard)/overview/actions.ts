@@ -13,7 +13,8 @@ import { can } from "@/lib/permissions";
 const SaveBriefInput = z.object({
   siteId: z.string().min(1).max(64),
   brief: z.object(
-    Object.fromEntries(BRIEF_FIELDS.map((f) => [f, z.string().trim().max(MAX_BRIEF_FIELD_CHARS)])) as Record<BriefField, z.ZodString>,
+    // A part left out is "not filled in", like an empty one.
+    Object.fromEntries(BRIEF_FIELDS.map((f) => [f, z.string().trim().max(MAX_BRIEF_FIELD_CHARS).optional()])) as Record<BriefField, z.ZodOptional<z.ZodString>>,
   ),
   postsPerWeek: z.number().int().min(1).max(MAX_POSTS_PER_WEEK).nullable(),
 });

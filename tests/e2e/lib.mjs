@@ -101,7 +101,7 @@ export async function somePublishedPost() {
   return posts[0];
 }
 
-const BRIEF_FIELDS = ["audience", "goal", "offering", "voice", "avoid", "notes"];
+const BRIEF_FIELDS = ["audience", "goal", "offering", "voice", "avoid", "framework", "notes"];
 const unescape = (s) => s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#x27;", "'").replaceAll("&amp;", "&");
 
 /** A website's content brief and weekly target as saved now (read from its edit form), to put back after a test. */

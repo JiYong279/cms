@@ -53,6 +53,10 @@ const vi = {
         label: "Không viết, không làm",
         placeholder: "Ví dụ: không so sánh giá với đối thủ, không hứa kết quả điều trị, không đăng ảnh trước/sau.",
       },
+      framework: {
+        label: "Khung bài ưa dùng",
+        placeholder: "Ví dụ: Bối cảnh → Vấn đề → Hậu quả → Nhận định → Giải pháp → Thông điệp chính → CTA bằng một câu hỏi. AI giữ mạch này nhưng viết thành đề mục dạng câu hỏi.",
+      },
       notes: {
         label: "Ghi chú khác",
         placeholder: "Ví dụ: từ khoá ưu tiên quý này, đối thủ cần theo dõi, nguồn uy tín hay dùng.",
@@ -192,6 +196,10 @@ const en: typeof vi = {
       avoid: {
         label: "Never write about or do",
         placeholder: "E.g. no price comparisons with competitors, no promised treatment results, no before/after photos.",
+      },
+      framework: {
+        label: "Preferred article structure",
+        placeholder: "E.g. Context → Problem → Consequences → Insight → Solution → Key message → a question as the CTA. The AI keeps this flow, written as question headings.",
       },
       notes: {
         label: "Other notes",

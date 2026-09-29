@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import type { Locale } from "@/db/schema";
 import { siteBrief, type BriefSite } from "./ai-brief";
+import { linkRules, seoWritingRules, type ArticleKind, type LinkTarget } from "./ai-seo";
 import { SOURCE_RULES } from "./ai-sources";
 import { imageSuggestionHtml } from "./image-suggestions";
 
@@ -99,9 +100,13 @@ export function draftPrompt(input: {
   focusKeyword: string;
   words: number;
   categories: Category[];
+  kind: ArticleKind;
+  /** The website's live articles the draft may link to. */
+  links: LinkTarget[];
 }) {
   const vi = input.locale === "vi";
   const points = input.keyPoints.trim();
+  const links = linkRules(input.locale, input.links, input.kind);
   const lines = vi
     ? [
         `Bạn viết bài blog cho website ${input.site.name} (${input.site.baseUrl}).`,
@@ -112,8 +117,12 @@ export function draftPrompt(input: {
         points ? `Các ý cần có:\n${points}` : null,
         input.focusKeyword.trim() ? `Từ khoá chính: ${input.focusKeyword.trim()}` : null,
         "",
-        "Giọng văn rõ ràng, thân thiện, chuyên nghiệp; ưu tiên ví dụ cụ thể. Không bịa số liệu, giá, luật hay quy định; khi nội dung phụ thuộc vào quy định, nhắc người đọc kiểm tra văn bản hiện hành. Kết bài bằng một khung TIP tóm tắt điểm chính.",
+        "Giọng văn rõ ràng, thân thiện, chuyên nghiệp; ưu tiên ví dụ cụ thể. Không bịa số liệu, giá, luật hay quy định; khi nội dung phụ thuộc vào quy định, nhắc người đọc kiểm tra văn bản hiện hành. Ngay trước mục Câu hỏi thường gặp, đặt một khung TIP tóm tắt điểm chính.",
         "",
+        seoWritingRules("vi", input.kind),
+        "",
+        links || null,
+        links ? "" : null,
         SOURCE_RULES.vi,
         "",
         IMAGE_RULES.vi,
@@ -131,8 +140,12 @@ export function draftPrompt(input: {
         points ? `Points to cover:\n${points}` : null,
         input.focusKeyword.trim() ? `Main search phrase: ${input.focusKeyword.trim()}` : null,
         "",
-        "Clear, warm, professional voice; prefer concrete examples. Do not invent statistics, prices, laws or regulations; when a point depends on a regulation, tell readers to check the current text. End with a TIP box that sums up the key point.",
+        "Clear, warm, professional voice; prefer concrete examples. Do not invent statistics, prices, laws or regulations; when a point depends on a regulation, tell readers to check the current text. Just before the frequently asked questions, add a TIP box that sums up the key point.",
         "",
+        seoWritingRules("en", input.kind),
+        "",
+        links || null,
+        links ? "" : null,
         SOURCE_RULES.en,
         "",
         IMAGE_RULES.en,
