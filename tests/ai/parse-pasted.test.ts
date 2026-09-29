@@ -163,5 +163,17 @@ check(
   );
 }
 
+// The AI marks where pictures would help; the team replaces each suggestion with a real image.
+check("the draft prompt asks for 2–4 image suggestions, never before/after photos", prompt.includes("> [!IMAGE]") && prompt.includes("2–4 gợi ý ảnh") && prompt.includes("trước/sau"));
+{
+  const suggested = parsePastedArticle(["---", "title: Bài có gợi ý ảnh", "---", "", "## Mục", "", "Chữ.", "", "> [!IMAGE] Lễ tân đón khách & mời nước | Lễ tân tại quầy | Quầy lễ tân \"Qub-X\"", "", "Tiếp."].join("\n"), categories);
+  const out = suggested.ok ? suggested.article.html : "";
+  check(
+    "an image suggestion becomes a suggestion block with its description and caption",
+    out.includes('<div data-image-suggestion="" data-alt="Lễ tân tại quầy" data-caption="Quầy lễ tân &quot;Qub-X&quot;">Lễ tân đón khách &amp; mời nước</div>'),
+    out,
+  );
+}
+
 console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
 process.exit(failures ? 1 : 0);

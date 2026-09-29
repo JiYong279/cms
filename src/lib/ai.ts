@@ -74,7 +74,10 @@ const BODY_HTML_RULES = `HTML rules for the article body:
   <table> with <tr>, <th>, <td>, and callouts written as <div data-callout data-variant="info|success|warning"><p>…</p></div>.
 - Every section starts with an <h2>; the website builds the table of contents from them. Do not repeat the title as a heading.
 - Put <p> inside every <li>, <th>, <td> and callout.
-- No classes, inline styles, images, scripts or Markdown.`;
+- Where a picture would help, add an image suggestion instead of an image (2–4 per article):
+  <div data-image-suggestion data-alt="description for screen readers" data-caption="short caption">what the image should show</div>.
+  Prefer real photos at the clinic or spa, software screens or diagrams; never before/after treatment photos.
+- No <img>, classes, inline styles, scripts or Markdown.`;
 
 export type SiteContext = {
   name: string;

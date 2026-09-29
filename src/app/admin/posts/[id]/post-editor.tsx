@@ -40,6 +40,7 @@ import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
 import { FIX_FOR, fieldsFor, type FixField } from "@/lib/seo-fix";
 import { carryImageCredits, countUnknownImages, permitUnknownImages, permitUnknownImagesInHtml } from "@/lib/image-rights";
+import { countImageSuggestions } from "@/lib/image-suggestions";
 import { imageFiles, uploadImage } from "@/lib/upload-client";
 import { cn } from "@/lib/utils";
 import { markTranslationSynced, restorePosts, savePost, trashPostAndLeave } from "../actions";
@@ -972,6 +973,7 @@ export function PostEditor({
           url={publicUrl}
           seoScore={seoScore.score}
           unknownImages={countUnknownImages(content.html)}
+          suggestionsLeft={countImageSuggestions(content.html)}
           otherUnpublished={otherUnpublished.map((tab) =>
             fmt(t.editor.publishing.otherUnpublished, {
               language: t.common.locales[tab.locale],
@@ -1047,6 +1049,7 @@ function PublishDialog({
   otherUnpublished,
   seoScore,
   unknownImages,
+  suggestionsLeft,
   initialWhen,
   onCancel,
   onConfirm,
@@ -1058,6 +1061,8 @@ function PublishDialog({
   seoScore: number;
   /** Images nobody has confirmed may be used: publishing needs the editor to confirm them. */
   unknownImages: number;
+  /** Image suggestions still in the article (never published). */
+  suggestionsLeft: number;
   initialWhen: string;
   onCancel: () => void;
   /** `when` is a datetime-local value when scheduling, null to publish now. */
@@ -1162,6 +1167,13 @@ function PublishDialog({
           <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700">
             <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
             {fmt(t.editor.score.publishWarning, { score: seoScore })}
+          </p>
+        )}
+
+        {suggestionsLeft > 0 && (
+          <p className="mt-3 flex items-start gap-2 text-xs leading-relaxed text-amber-700" data-suggestions-left>
+            <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
+            {fmt(p.suggestionsLeft, { n: suggestionsLeft })}
           </p>
         )}
 

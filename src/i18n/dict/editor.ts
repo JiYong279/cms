@@ -40,6 +40,7 @@ const vi = {
     submitted: "Đã gửi bài cho biên tập viên duyệt.",
     unknownImages: "Bài có {n} ảnh chưa rõ quyền sử dụng (viền cam trong bài). Đổi ảnh khác, hoặc kiểm tra rồi xác nhận.",
     confirmImages: "Tôi đã kiểm tra: được phép dùng các ảnh này trên website.",
+    suggestionsLeft: "Còn {n} gợi ý ảnh chưa thay bằng ảnh thật. Gợi ý không hiện trên website, nhưng bài sẽ thiếu ảnh ở những chỗ đó.",
     view: "Xem bài",
   },
   ai: {
@@ -165,6 +166,14 @@ const vi = {
     trash: "Chuyển vào thùng rác",
     confirmTrash: "Chuyển bài này vào thùng rác?",
     confirmTrashHint: "Bài sẽ biến khỏi website. Bạn có thể khôi phục trong 30 ngày.",
+  },
+  suggestion: {
+    title: "Gợi ý ảnh",
+    alt: "Mô tả ảnh",
+    caption: "Chú thích",
+    upload: "Tải ảnh lên",
+    link: "Chèn ảnh từ đường dẫn",
+    remove: "Bỏ gợi ý",
   },
   seoFix: {
     title: "Sửa SEO bằng AI",
@@ -436,6 +445,7 @@ const en: EditorDict = {
     submitted: "Sent to an editor for review.",
     unknownImages: "The article has {n} images we may not have the right to use (orange outline). Replace them, or check and confirm.",
     confirmImages: "I checked: we may use these images on the website.",
+    suggestionsLeft: "{n} image suggestions are not replaced yet. They never show on the website, but the article will lack those pictures.",
     view: "View article",
   },
   ai: {
@@ -560,6 +570,14 @@ const en: EditorDict = {
     trash: "Move to trash",
     confirmTrash: "Move this article to the trash?",
     confirmTrashHint: "It will disappear from the website. You can restore it within 30 days.",
+  },
+  suggestion: {
+    title: "Image suggestion",
+    alt: "Description",
+    caption: "Caption",
+    upload: "Upload an image",
+    link: "Use an image link",
+    remove: "Drop the suggestion",
   },
   seoFix: {
     title: "Fix SEO with AI",

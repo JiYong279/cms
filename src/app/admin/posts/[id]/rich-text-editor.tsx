@@ -33,6 +33,16 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
   const [linkOpen, setLinkOpen] = useState(false);
   const [dialog, setDialog] = useState<UrlDialogConfig | null>(null);
   const fileInputId = useId();
+  // The image suggestion waiting for the file being picked, to put the upload in its place.
+  const [suggestionAt, setSuggestionAt] = useState<number | null>(null);
+
+  /** Puts a real image where a suggestion was, with the suggestion's description and caption. */
+  function replaceSuggestion(editor: Editor, pos: number, image: { src: string; width?: number; height?: number; rights: string }) {
+    const node = editor.state.doc.nodeAt(pos);
+    if (!node || node.type.name !== "imageSuggestion") return;
+    const attrs = { ...image, alt: node.attrs.alt as string, title: node.attrs.caption as string };
+    editor.chain().focus().insertContentAt({ from: pos, to: pos + node.nodeSize }, { type: "image", attrs }).run();
+  }
 
   /** Uploads images one by one and inserts each where the paste or drop happened. */
   async function insertImages(editor: Editor, files: File[], at?: number) {
@@ -53,8 +63,25 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
     }
   }
 
+  /** Uploads one image into the place of an image suggestion. */
+  async function uploadInto(editor: Editor, file: File, pos: number) {
+    setUploading((n) => n + 1);
+    try {
+      const image = await uploadImage(file, { siteId, networkError: t.editor.upload.network });
+      replaceSuggestion(editor, pos, { src: image.url, width: image.width, height: image.height, rights: "own" });
+    } catch (error) {
+      onError(error instanceof Error ? error.message : t.editor.upload.failed);
+    } finally {
+      setUploading((n) => n - 1);
+    }
+  }
+
   const ui: EditorUi = {
-    pickImage: () => document.getElementById(fileInputId)?.click(),
+    pickImage: () => {
+      // A suggestion whose file picker was cancelled must not catch this upload.
+      setSuggestionAt(null);
+      document.getElementById(fileInputId)?.click();
+    },
     promptImageUrl: (editor) =>
       setDialog({
         title: t.editor.urlDialog.imageTitle,
@@ -80,6 +107,21 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
     editable,
     extensions: buildExtensions({
       onFiles: (e, files, at) => void insertImages(e, files, at),
+      onSuggestion: (e, pos, action) => {
+        if (action === "upload") {
+          setSuggestionAt(pos);
+          document.getElementById(fileInputId)?.click();
+          return;
+        }
+        setDialog({
+          title: t.editor.urlDialog.imageTitle,
+          description: t.editor.urlDialog.imageDescription,
+          placeholder: t.editor.urlDialog.imagePlaceholder,
+          validate: (url) => (/^https?:\/\/\S+$/.test(url) ? null : t.editor.urlDialog.imageInvalid),
+          // Linked from elsewhere: nobody has checked yet whether it may be used.
+          onSubmit: (src) => replaceSuggestion(e, pos, { src, rights: "unknown" }),
+        });
+      },
       onSlashState: setSlash,
       onSlashSelect: (item, e) => item.run(e, ui),
       onOpenLink: () => setLinkOpen(true),
@@ -96,7 +138,10 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
 
   // Parsed by the editor like a paste, so anything it does not support is dropped; onUpdate reports it.
   useEffect(() => {
-    if (editor && replacement) editor.commands.setContent(replacement.html);
+    if (!editor || !replacement) return;
+    // After React's commit: blocks drawn by React (image suggestions) cannot render inside it.
+    const timer = setTimeout(() => editor.commands.setContent(replacement.html), 0);
+    return () => clearTimeout(timer);
   }, [editor, replacement]);
 
   useEffect(() => {
@@ -138,7 +183,10 @@ export function RichTextEditor({ content, onChange, siteId, onError, editable = 
         onChange={(e) => {
           const files = imageFiles(e.target.files);
           e.target.value = "";
-          if (editor && files.length) void insertImages(editor, files);
+          const at = suggestionAt;
+          setSuggestionAt(null);
+          if (editor && files.length && at !== null) void uploadInto(editor, files[0], at);
+          else if (editor && files.length) void insertImages(editor, files);
         }}
       />
       <EditorContent editor={editor} className="mt-6" />

@@ -31,6 +31,25 @@ try {
   const api = await (await fetch(`${process.env.E2E_CMS_URL ?? "http://localhost:3001"}/api/public/v1/sites/qubx/posts/bai-thu-quyen-anh?locale=vi`)).json();
   const html = (api.post ?? api).html ?? "";
   check("the website gets the image with its credit", html.includes('data-credit="Không rõ"') && !html.includes('data-rights="unknown"'), html.slice(0, 200));
+
+  // Image suggestions are notes for the team: the public API never hands them out.
+  const suggestion = '<div data-image-suggestion="" data-alt="Lễ tân" data-caption="Quầy">Ảnh lễ tân đón khách</div>';
+  r = await admin.call(editorUrl, "savePost", [
+    {
+      ...article,
+      status: "published",
+      contentHtml: `<p>Mở đầu.</p>${suggestion}<p>Kết.</p>`,
+      contentJson: { type: "doc", content: [{ type: "paragraph", content: [{ type: "text", text: "Mở đầu." }] }, { type: "imageSuggestion", attrs: { description: "Ảnh lễ tân đón khách", alt: "Lễ tân", caption: "Quầy" } }, { type: "paragraph", content: [{ type: "text", text: "Kết." }] }] },
+    },
+  ]);
+  check("an article with an image suggestion can be published", r.ok === true, JSON.stringify(r));
+  const live = await (await fetch(`${process.env.E2E_CMS_URL ?? "http://localhost:3001"}/api/public/v1/sites/qubx/posts/bai-thu-quyen-anh?locale=vi`)).json();
+  const post = live.post ?? live;
+  check(
+    "the public API leaves image suggestions out of the HTML and the document",
+    !post.html.includes("data-image-suggestion") && !JSON.stringify(post.content).includes("imageSuggestion") && post.html.includes("Kết."),
+    post.html,
+  );
 } finally {
   await destroyPosts(admin, postId ? [postId] : []);
 }

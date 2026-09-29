@@ -1,4 +1,4 @@
-import { Extension, Node, mergeAttributes, type Editor } from "@tiptap/react";
+import { Extension, Node, ReactNodeViewRenderer, mergeAttributes, type Editor } from "@tiptap/react";
 import { Plugin, PluginKey } from "@tiptap/pm/state";
 import StarterKit from "@tiptap/starter-kit";
 import Image from "@tiptap/extension-image";
@@ -11,6 +11,7 @@ import Youtube from "@tiptap/extension-youtube";
 import Suggestion from "@tiptap/suggestion";
 import { imageFiles } from "@/lib/upload-client";
 import { filterBlocks, type BlockItem } from "./blocks";
+import { ImageSuggestionView } from "./image-suggestion-view";
 
 /** Images carry who to credit and whether they may be used (lib/image-rights), as data-* attributes. */
 const CreditedImage = Image.extend({
@@ -52,6 +53,36 @@ const CaptionedTable = Table.extend({
         renderHTML: (attrs) => (attrs.caption ? { "data-caption": attrs.caption } : {}),
       },
     };
+  },
+});
+
+export type SuggestionAction = "upload" | "link";
+
+/** Where the AI suggests a picture (lib/image-suggestions): replaced by a real image, never published. */
+const ImageSuggestion = Node.create<{ onAction: (editor: Editor, pos: number, action: SuggestionAction) => void }>({
+  name: "imageSuggestion",
+  group: "block",
+  atom: true,
+  selectable: true,
+  draggable: true,
+  addOptions() {
+    return { onAction: () => {} };
+  },
+  addAttributes() {
+    return {
+      description: { default: "", parseHTML: (el) => el.textContent?.trim() ?? "", renderHTML: () => ({}) },
+      alt: { default: "", parseHTML: (el) => el.getAttribute("data-alt") ?? "", renderHTML: (attrs) => ({ "data-alt": attrs.alt }) },
+      caption: { default: "", parseHTML: (el) => el.getAttribute("data-caption") ?? "", renderHTML: (attrs) => ({ "data-caption": attrs.caption }) },
+    };
+  },
+  parseHTML() {
+    return [{ tag: "div[data-image-suggestion]" }];
+  },
+  renderHTML({ node, HTMLAttributes }) {
+    return ["div", mergeAttributes(HTMLAttributes, { "data-image-suggestion": "" }), node.attrs.description];
+  },
+  addNodeView() {
+    return ReactNodeViewRenderer(ImageSuggestionView);
   },
 });
 
@@ -203,6 +234,8 @@ export const LinkShortcut = Extension.create<{ onOpen: () => void }>({
 
 export function buildExtensions(handlers: {
   onFiles: (editor: Editor, files: File[], at?: number) => void;
+  /** A button on an image suggestion: put a real image in its place. */
+  onSuggestion: (editor: Editor, pos: number, action: SuggestionAction) => void;
   onSlashState: (state: SlashState | null) => void;
   onSlashSelect: (item: BlockItem, editor: Editor) => void;
   onOpenLink: () => void;
@@ -216,6 +249,7 @@ export function buildExtensions(handlers: {
       dropcursor: { color: "#16a260", width: 2 },
     }),
     CreditedImage.configure({ allowBase64: false }),
+    ImageSuggestion.configure({ onAction: handlers.onSuggestion }),
     Placeholder.configure({
       placeholder: ({ node }) =>
         node.type.name === "heading" ? handlers.placeholders.heading : handlers.placeholders.paragraph,

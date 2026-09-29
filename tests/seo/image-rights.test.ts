@@ -1,6 +1,7 @@
 // Image rights and credits: counting unknown ones, confirming them, keeping them through a translation.
 //   npx tsx tests/seo/image-rights.test.ts
 import { carryImageCredits, countUnknownImages, permitUnknownImages, permitUnknownImagesInHtml } from "../../src/lib/image-rights";
+import { countImageSuggestions, stripImageSuggestions, stripImageSuggestionsFromDoc } from "../../src/lib/image-suggestions";
 
 let failures = 0;
 const check = (label: string, ok: boolean, detail = "") => {
@@ -40,6 +41,16 @@ check(
   carried,
 );
 check("an image not in the source is left as it is", carried.includes('<img src="https://cdn/z.webp" alt="New">'));
+
+// Image suggestions are for the team: never on a website.
+{
+  const withSuggestion = '<p>A</p><div data-image-suggestion="" data-alt="x" data-caption="y">Ảnh lễ tân</div><p>B</p>';
+  check("suggestions are counted", countImageSuggestions(withSuggestion) === 1);
+  check("they are stripped from the HTML a website gets", stripImageSuggestions(withSuggestion) === "<p>A</p><p>B</p>");
+  const doc = { type: "doc", content: [{ type: "paragraph" }, { type: "imageSuggestion", attrs: { description: "Ảnh" } }, { type: "table", content: [{ type: "imageSuggestion" }] }] };
+  const stripped = stripImageSuggestionsFromDoc(doc);
+  check("and from its document, at any depth", stripped.content?.length === 2 && stripped.content?.[1]?.content?.length === 0);
+}
 
 console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
 process.exit(failures ? 1 : 0);

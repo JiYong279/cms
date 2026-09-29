@@ -3,6 +3,7 @@ import type { JSONContent } from "@tiptap/react";
 import { getDb, schema } from "@/db";
 import type { Locale, PostTranslation } from "@/db/schema";
 import { categoryName, categorySlug } from "./categories";
+import { stripImageSuggestions, stripImageSuggestionsFromDoc } from "./image-suggestions";
 import { slugify } from "./posts";
 import { publishDuePosts } from "./scheduled";
 
@@ -156,7 +157,9 @@ export async function getPublicPost(siteId: string, locale: Locale, slug: string
   const [row] = await loadLive(siteId, locale, slug);
   if (!row) return null;
   const { t } = row;
-  const { content, toc } = withHeadingIds(t.contentJson as JSONContent | null);
+  // Image suggestions are notes for the team (lib/image-suggestions): websites never get them.
+  const doc = t.contentJson as JSONContent | null;
+  const { content, toc } = withHeadingIds(doc && stripImageSuggestionsFromDoc(doc));
   return {
     ...summary(row),
     metaTitle: t.metaTitle || t.title,
@@ -165,7 +168,7 @@ export async function getPublicPost(siteId: string, locale: Locale, slug: string
     canonicalUrl: t.canonicalUrl,
     noindex: t.noindex,
     content,
-    html: t.contentHtml,
+    html: stripImageSuggestions(t.contentHtml),
     author: publicAuthor(t.post.author, locale),
     toc,
   };
