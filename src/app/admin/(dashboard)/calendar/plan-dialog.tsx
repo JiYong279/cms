@@ -182,7 +182,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, onClose }: Prop
         </div>
 
         {ideas === null ? (
-          <fieldset disabled={running} className="mt-5 flex flex-col gap-3">
+          <fieldset disabled={running} className="mt-5 flex min-w-0 flex-col gap-3">
             <div className="grid gap-3 sm:grid-cols-2">
               {sites.length > 1 && (
                 <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">

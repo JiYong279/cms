@@ -416,7 +416,7 @@ export function PostEditor({
   return (
     <div className="flex h-dvh flex-col bg-white">
       {/* ---------- Top bar ---------- */}
-      <header className="flex h-14 shrink-0 items-center gap-2 border-b border-zinc-200 px-3 sm:px-4">
+      <header className="flex h-14 shrink-0 items-center gap-1.5 border-b border-zinc-200 px-3 sm:gap-2 sm:px-4">
         <Link
           href={backHref}
           onClick={confirmLeave}
@@ -425,12 +425,12 @@ export function PostEditor({
         >
           <ArrowLeft className="size-4" />
         </Link>
-        <div className="hidden min-w-0 sm:block">
+        <div className="hidden min-w-0 flex-1 sm:block">
           <p className="truncate text-sm font-medium">{title || t.editor.header.untitled}</p>
           <p className="text-xs text-zinc-500">{site.name}</p>
         </div>
 
-        <nav className="ml-2 flex shrink-0 rounded-lg bg-zinc-100 p-0.5" aria-label={t.editor.header.languages}>
+        <nav className="ml-1 flex shrink-0 rounded-lg bg-zinc-100 p-0.5 sm:ml-2" aria-label={t.editor.header.languages}>
           {locales.map((tab) => (
             <Link
               key={tab.locale}
@@ -453,7 +453,7 @@ export function PostEditor({
           ))}
         </nav>
 
-        <div className="ml-auto flex items-center gap-2">
+        <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-2">
           <span className="hidden items-center gap-1.5 text-xs text-zinc-500 md:flex" suppressHydrationWarning>
             {saving ? (
               <>
@@ -474,7 +474,7 @@ export function PostEditor({
             onClick={() => goTo("seo-score")}
             title={t.editor.score.badgeTitle}
             data-seo-badge={seoScore.score}
-            className={cn("rounded-full px-2.5 py-1 text-xs font-semibold ring-1 ring-inset", BADGE_COLOR[seoScore.level])}
+            className={cn("shrink-0 whitespace-nowrap rounded-full px-2 py-1 text-xs font-semibold ring-1 ring-inset sm:px-2.5", BADGE_COLOR[seoScore.level])}
           >
             SEO {seoScore.score}
           </button>
@@ -498,16 +498,17 @@ export function PostEditor({
             onClick={() => setAiOpen(true)}
             disabled={saving || locked}
             title={t.editor.ai.buttonTitle}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-2 text-sm font-medium text-zinc-700 hover:border-brand-light hover:text-brand disabled:opacity-50"
+            aria-label={t.editor.ai.buttonTitle}
+            className="inline-flex shrink-0 items-center gap-1.5 rounded-lg border border-zinc-200 px-2.5 py-2 text-sm font-medium text-zinc-700 hover:border-brand-light hover:text-brand disabled:opacity-50 sm:px-3"
           >
             <Sparkles className="size-4" />
-            {t.editor.ai.button}
+            <span className="hidden sm:inline">{t.editor.ai.button}</span>
           </button>
           <button
             type="button"
             onClick={togglePanel}
             title={t.editor.header.settings}
-            className="rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
+            className="shrink-0 rounded-md p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-900"
           >
             {panelOpen ? <PanelRightClose className="size-4" /> : <PanelRightOpen className="size-4" />}
           </button>
@@ -529,7 +530,7 @@ export function PostEditor({
                 onClick={() => save()}
                 disabled={saving || locked}
                 title={t.editor.header.saveTitle}
-                className="rounded-lg border border-zinc-200 px-3.5 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50"
+                className="shrink-0 whitespace-nowrap rounded-lg border border-zinc-200 px-2.5 py-2 text-sm font-medium text-zinc-700 hover:border-zinc-300 hover:bg-zinc-50 disabled:opacity-50 sm:px-3.5"
               >
                 {t.common.save}
               </button>
@@ -539,10 +540,11 @@ export function PostEditor({
                   onClick={() => setPublishOpen(true)}
                   disabled={saving || locked}
                   title={t.editor.publishing.publishTitle}
+                  aria-label={t.editor.publishing.publish}
                   className={primaryButton}
                 >
                   {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  {t.editor.publishing.publish}
+                  <span className="hidden sm:inline">{t.editor.publishing.publish}</span>
                 </button>
               ) : (
                 <button
@@ -550,10 +552,11 @@ export function PostEditor({
                   onClick={() => save({ status: "in_review" })}
                   disabled={saving || locked}
                   title={t.editor.publishing.submitTitle}
+                  aria-label={t.editor.publishing.submit}
                   className={primaryButton}
                 >
                   {saving ? <Loader2 className="size-4 animate-spin" /> : <Send className="size-4" />}
-                  {t.editor.publishing.submit}
+                  <span className="hidden sm:inline">{t.editor.publishing.submit}</span>
                 </button>
               )}
             </>
@@ -1033,7 +1036,7 @@ export function PostEditor({
 /* ---------- Pieces ---------- */
 
 const primaryButton =
-  "inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-white hover:bg-brand-hover disabled:opacity-50";
+  "inline-flex shrink-0 items-center gap-2 whitespace-nowrap rounded-lg bg-brand px-3 py-2 text-sm font-medium text-white hover:bg-brand-hover disabled:opacity-50 sm:px-4";
 
 /** An hour from now, on the hour, as a datetime-local value. */
 function nextHour() {
@@ -1117,7 +1120,7 @@ function PublishDialog({
           </button>
         </div>
 
-        <fieldset className="mt-5 grid grid-cols-2 gap-2">
+        <fieldset className="mt-5 grid min-w-0 grid-cols-2 gap-2">
           {options.map((option) => (
             <label
               key={option.label}
@@ -1435,7 +1438,7 @@ function AiDialog({
         </div>
         <p className="mt-2 text-xs text-zinc-500">{engine === "own" ? a.engineOwnHint : enabled ? a.engineBuiltinHint : a.errors.not_configured}</p>
 
-        <fieldset disabled={running} className="mt-4 grid grid-cols-2 gap-2">
+        <fieldset disabled={running} className="mt-4 grid min-w-0 grid-cols-2 gap-2">
           {options.map((option) => (
             <label
               key={option.mode}
@@ -1466,7 +1469,7 @@ function AiDialog({
           ))}
         </fieldset>
 
-        <fieldset disabled={running} className="mt-4 flex flex-col gap-3">
+        <fieldset disabled={running} className="mt-4 flex min-w-0 flex-col gap-3">
           {mode === "translate" && source && (
             <div role="radiogroup" aria-label={a.direction} className="grid grid-cols-2 gap-2">
               {(

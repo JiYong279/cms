@@ -31,7 +31,8 @@ import { cn } from "@/lib/utils";
 import type { CalloutVariant } from "./extensions";
 import { Divider, IconButton } from "./ui";
 
-const menuClass = "flex items-center gap-0.5 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg";
+// Tiptap sets `width: max-content` inline; max-width keeps menus on narrow screens.
+const menuClass = "flex max-w-[calc(100vw-1rem)] flex-wrap items-center gap-0.5 rounded-xl border border-zinc-200 bg-white p-1 shadow-lg";
 
 /** Formatting and link editing next to the selected text. */
 export function TextBubble({ editor }: { editor: Editor }) {
@@ -67,7 +68,7 @@ export function TextBubble({ editor }: { editor: Editor }) {
       shouldShow={({ editor: e, from, to }) =>
         from !== to && !e.isActive("image") && !e.isActive("codeBlock") && !e.isActive("youtube")
       }
-      options={{ placement: "top", offset: 8, onHide: () => setLinkDraft(null) }}
+      options={{ placement: "top", offset: 8, shift: { padding: 8 }, onHide: () => setLinkDraft(null) }}
       className={menuClass}
     >
       {linkDraft === null ? (
@@ -139,8 +140,8 @@ export function ImageBubble({ editor }: { editor: Editor }) {
       editor={editor}
       pluginKey="imageBubble"
       shouldShow={({ editor: e }) => e.isActive("image")}
-      options={{ placement: "bottom", offset: 8 }}
-      className="flex w-[26rem] flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
+      options={{ placement: "bottom", offset: 8, shift: { padding: 8 } }}
+      className="flex w-[26rem]! max-w-[calc(100vw-1rem)] flex-col gap-1.5 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg"
     >
       <label className="flex items-center gap-2 text-xs text-zinc-500">
         <span className="w-16 shrink-0">{b.alt}</span>
@@ -210,7 +211,7 @@ export function TableBubble({ editor }: { editor: Editor }) {
       editor={editor}
       pluginKey="tableBubble"
       shouldShow={({ editor: e, from, to }) => e.isActive("table") && from === to}
-      options={{ placement: "top", offset: 8 }}
+      options={{ placement: "top", offset: 8, shift: { padding: 8 } }}
       className={cn(menuClass, "flex-col items-stretch gap-1")}
     >
       <label className="flex items-center gap-2 px-1.5 pt-0.5 text-xs text-zinc-500">
@@ -223,7 +224,7 @@ export function TableBubble({ editor }: { editor: Editor }) {
           className="min-w-0 flex-1 rounded-md border border-zinc-200 px-2 py-1 text-sm text-zinc-800 outline-none focus:border-brand"
         />
       </label>
-      <div className="flex items-center gap-0.5">
+      <div className="flex flex-wrap items-center gap-0.5">
       <span className="flex items-center gap-1 px-1.5 text-xs font-medium text-zinc-500">
         <Rows3 className="size-3.5" /> {b.rows}
       </span>
@@ -271,7 +272,7 @@ export function CalloutBubble({ editor }: { editor: Editor }) {
       editor={editor}
       pluginKey="calloutBubble"
       shouldShow={({ editor: e, from, to }) => e.isActive("callout") && from === to}
-      options={{ placement: "top-start", offset: 8 }}
+      options={{ placement: "top-start", offset: 8, shift: { padding: 8 } }}
       className={menuClass}
     >
       {VARIANTS.map((v) => (
