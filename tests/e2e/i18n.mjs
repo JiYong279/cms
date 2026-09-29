@@ -46,6 +46,7 @@ const pages = [
   "/admin",
   "/admin?view=trash",
   "/admin/calendar",
+  "/admin/overview",
   `/admin/posts/${post.id}?locale=vi`,
   `/admin/posts/${post.id}?locale=en`,
   "/admin/users",

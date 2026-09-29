@@ -1,6 +1,6 @@
 import { marked } from "marked";
 import type { Locale } from "@/db/schema";
-import { siteBrief } from "./ai-brief";
+import { siteBrief, type BriefSite } from "./ai-brief";
 import { SOURCE_RULES } from "./ai-sources";
 import { imageSuggestionHtml } from "./image-suggestions";
 
@@ -37,7 +37,7 @@ export type PastedArticle = {
 /** "isPrompt": the prompt itself was pasted back instead of the AI's answer to it. */
 export type PasteError = "empty" | "noTitle" | "noBody" | "isPrompt";
 
-type Site = { id: string; name: string; baseUrl: string };
+type Site = BriefSite;
 type Category = { id: string; name: string };
 
 const LANGUAGE: Record<Locale, { vi: string; en: string }> = {
@@ -105,7 +105,7 @@ export function draftPrompt(input: {
   const lines = vi
     ? [
         `Bạn viết bài blog cho website ${input.site.name} (${input.site.baseUrl}).`,
-        `Bối cảnh: ${siteBrief(input.site.id, input.site)}`,
+        `Bối cảnh: ${siteBrief(input.site)}`,
         "",
         `Hãy viết một bài blog bằng ${LANGUAGE.vi.vi}, khoảng ${input.words} từ.`,
         `Chủ đề: ${input.topic.trim()}`,
@@ -124,7 +124,7 @@ export function draftPrompt(input: {
       ]
     : [
         `You write blog articles for ${input.site.name} (${input.site.baseUrl}).`,
-        `Context: ${siteBrief(input.site.id, input.site)}`,
+        `Context: ${siteBrief(input.site)}`,
         "",
         `Write a blog article in ${LANGUAGE.en.en}, about ${input.words} words long.`,
         `Topic: ${input.topic.trim()}`,
@@ -176,7 +176,7 @@ export function translatePrompt(input: {
   const intro = vi
     ? [
         `Bạn dịch bài blog cho website ${input.site.name} (${input.site.baseUrl}).`,
-        `Bối cảnh: ${siteBrief(input.site.id, input.site)}`,
+        `Bối cảnh: ${siteBrief(input.site)}`,
         "",
         `Hãy dịch bài dưới đây từ ${LANGUAGE[input.from].vi} sang ${LANGUAGE[input.to].vi}, tự nhiên như người bản xứ viết, giữ nguyên ý, giọng văn và bố cục. Phần SEO (tiêu đề SEO, mô tả, từ khoá) hãy viết lại theo cách người đọc ${LANGUAGE[input.to].vi} sẽ tìm kiếm.`,
         "Nội dung bài đang ở dạng HTML: <h2>/<h3> là mục, <div data-callout data-variant=\"info|success|warning\"> là khung NOTE/TIP/WARNING.",
@@ -188,7 +188,7 @@ export function translatePrompt(input: {
       ]
     : [
         `You translate blog articles for ${input.site.name} (${input.site.baseUrl}).`,
-        `Context: ${siteBrief(input.site.id, input.site)}`,
+        `Context: ${siteBrief(input.site)}`,
         "",
         `Translate the article below from ${LANGUAGE[input.from].en} into ${LANGUAGE[input.to].en}, naturally, as a native writer would, keeping the meaning, tone and structure. Rewrite the SEO fields (SEO title, description, search phrase) the way ${LANGUAGE[input.to].en} readers would search.`,
         "The body is HTML: <h2>/<h3> are sections, <div data-callout data-variant=\"info|success|warning\"> are NOTE/TIP/WARNING boxes.",

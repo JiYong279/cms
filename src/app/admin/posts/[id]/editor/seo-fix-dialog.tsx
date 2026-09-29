@@ -5,6 +5,7 @@ import { AlertTriangle, Check, CircleAlert, CircleCheck, Copy, ExternalLink, Loa
 import type { Locale } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
+import type { BriefSite } from "@/lib/ai-brief";
 import { AI_FIELDS, LIMITS, parseSeoFix, seoFixPrompt, suggestSlug, withinLimits, type AiField, type FixArticle, type FixField } from "@/lib/seo-fix";
 import { cn } from "@/lib/utils";
 import { aiFixSeo } from "../../ai-actions";
@@ -12,7 +13,7 @@ import { aiFixSeo } from "../../ai-actions";
 type Props = {
   postId: string;
   locale: Locale;
-  site: { id: string; name: string; baseUrl: string };
+  site: BriefSite;
   /** The built-in AI has an API key. */
   enabled: boolean;
   /** Fields ticked at first: those fixing the checks the person clicked. */

@@ -35,6 +35,7 @@ import type { Locale, PostStatus, PostTranslation } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import type { ArticleFields, DraftLength } from "@/lib/ai";
+import type { BriefSite } from "@/lib/ai-brief";
 import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste";
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
@@ -54,14 +55,14 @@ import { SeoFixDialog } from "./editor/seo-fix-dialog";
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
 
 type Props = {
-  post: { id: string; categoryId: string | null; featured: boolean; coverImageUrl: string | null };
+  post: { id: string; categoryId: string | null; featured: boolean; pillar: boolean; coverImageUrl: string | null };
   locale: Locale;
   locales: LocaleTab[];
   translation: PostTranslation | null;
   /** Locale this translation was made from, when that source has changed since. */
   staleSource: Locale | null;
   /** `viewOrigin` is where to open the article to look at it (see viewOrigin in lib/posts). */
-  site: { id: string; name: string; baseUrl: string; viewOrigin: string; blogPath: string };
+  site: BriefSite & { viewOrigin: string; blogPath: string };
   categories: { id: string; name: string }[];
   /** The editorial calendar's plan for the article (saved on its own, see PlanningFields). */
   planning: { plannedFor: string | null; assigneeId: string | null; assignees: { id: string; name: string }[]; canAssign: boolean };
@@ -171,6 +172,7 @@ export function PostEditor({
   const [noindex, setNoindex] = useState(translation?.noindex ?? false);
   const [categoryId, setCategoryId] = useState(post.categoryId ?? "");
   const [featured, setFeatured] = useState(post.featured);
+  const [pillar, setPillar] = useState(post.pillar);
   const [coverImageUrl, setCoverImageUrl] = useState(post.coverImageUrl ?? "");
   const [coverImageAlt, setCoverImageAlt] = useState(translation?.coverImageAlt ?? "");
 
@@ -236,6 +238,7 @@ export function PostEditor({
         publishedAt: publishedAt ? new Date(publishedAt).toISOString() : null,
         categoryId: categoryId || null,
         featured,
+        pillar,
         coverImageUrl: coverImageUrl.trim(),
         coverImageAlt,
         translatedFrom,
@@ -290,6 +293,7 @@ export function PostEditor({
     publishedAt,
     categoryId,
     featured,
+    pillar,
     coverImageUrl,
     coverImageAlt,
     translatedFrom,
@@ -837,6 +841,12 @@ export function PostEditor({
                 </select>
               </Field>
               <Toggle
+                checked={pillar}
+                onChange={edit(setPillar)}
+                label={t.editor.panel.pillar}
+                hint={t.editor.panel.pillarHint}
+              />
+              <Toggle
                 checked={featured}
                 onChange={edit(setFeatured)}
                 label={t.editor.panel.featured}
@@ -1244,7 +1254,7 @@ function AiDialog({
 }: {
   postId: string;
   locale: Locale;
-  site: { id: string; name: string; baseUrl: string };
+  site: BriefSite;
   categories: { id: string; name: string }[];
   /** The other language: where a translation comes from. */
   source: { locale: Locale; exists: boolean } | null;

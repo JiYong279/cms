@@ -93,6 +93,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
         id: post.id,
         categoryId: post.categoryId,
         featured: post.featured,
+        pillar: post.pillar,
         coverImageUrl: post.coverImageUrl,
       }}
       locale={locale}
@@ -103,6 +104,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
         id: post.site.id,
         name: post.site.name,
         baseUrl: post.site.baseUrl,
+        brief: post.site.contentBrief,
         viewOrigin: viewOrigin(post.site),
         blogPath: post.site.blogPaths[locale],
       }}

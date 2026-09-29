@@ -4,7 +4,7 @@
 //   ANTHROPIC_API_KEY=fake ANTHROPIC_BASE_URL=http://localhost:3999, then: npm run test:ai
 import fs from "node:fs";
 import puppeteer from "puppeteer-core";
-import { ADMIN, CMS, Client, destroyPosts } from "../e2e/lib.mjs";
+import { ADMIN, CMS, Client, destroyPosts, readBrief, writeBrief } from "../e2e/lib.mjs";
 import { requests, startFakeAnthropic } from "../ai/fake-anthropic.mjs";
 
 const OUT = new URL("./screenshots/", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
@@ -35,6 +35,8 @@ page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
 page.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
 page.on("dialog", (d) => d.accept());
 let postId;
+/** The brief before step 6 changed it, to put back. */
+let briefBefore = null;
 
 const editorState = () =>
   page.evaluate(() => {
@@ -161,7 +163,9 @@ try {
   expect("the built-in AI's SEO title goes into the editor", (await page.$eval("#field-meta-title", (e) => e.value)).startsWith("[AI] "));
   expect("activity log records the AI SEO fix", (await admin.req("/admin/activity")).text.includes("Dùng AI sửa phần SEO bản VI"));
 
-  // 6. "Plan with AI" on the calendar, with the built-in AI.
+  // 6. "Plan with AI" on the calendar, with the built-in AI, carrying the team's brief.
+  briefBefore = await readBrief(admin, "qubx");
+  await writeBrief(admin, { ...briefBefore, brief: { ...briefBefore.brief, audience: "Chủ chuỗi nha khoa thử AI" } });
   await page.goto(`${CMS}/admin/calendar?site=qubx`, { waitUntil: "networkidle0" });
   await page.click("[data-plan-ai]");
   await page.waitForSelector("[data-plan-dialog]", { visible: true });
@@ -174,6 +178,7 @@ try {
   await page.waitForSelector("[data-plan-review]", { timeout: 20000 });
   const planRequest = requests.at(-1);
   expect("the plan request asks for 3 articles through the content_plan tool", planRequest.tool_choice?.name === "content_plan" && planRequest.messages[0].content.includes("một cụm 3 bài"));
+  expect("the plan request carries the team's brief", planRequest.messages[0].content.includes("Readers: Chủ chuỗi nha khoa thử AI"));
   expect("the built-in AI's 3 ideas are shown for review", (await page.$$("[data-plan-review] [data-idea]")).length === 3);
   expect("activity log records the AI plan", (await admin.req("/admin/activity")).text.includes("Dùng AI lên kế hoạch 3 bài"));
 } catch (error) {
@@ -184,11 +189,10 @@ try {
   expect("no errors in the browser console", errors.length === 0, errors.slice(0, 5).join(" | "));
   await browser.close();
   fake.close();
-  if (postId) {
-    const admin = new Client();
-    await admin.login(ADMIN.email, ADMIN.password);
-    await destroyPosts(admin, [postId]);
-  }
+  const admin = new Client();
+  await admin.login(ADMIN.email, ADMIN.password);
+  if (postId) await destroyPosts(admin, [postId]);
+  if (briefBefore) await writeBrief(admin, briefBefore);
   console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
   process.exit(failures ? 1 : 0);
 }

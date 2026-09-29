@@ -82,6 +82,7 @@ async function loadForAi(user: CurrentUser, postId: string, locale: Locale, t: D
   const site: SiteContext = {
     name: post.site.name,
     baseUrl: post.site.baseUrl,
+    brief: post.site.contentBrief,
     glossary,
     categories: categories.map((c) => categoryName(c, locale)),
   };

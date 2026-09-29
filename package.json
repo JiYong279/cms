@@ -27,6 +27,7 @@
     "test:image-suggestions": "tsx tests/browser/image-suggestions.mjs",
     "test:stock-images": "tsx tests/browser/stock-images.mjs",
     "test:ui-review": "tsx tests/browser/ui-review.mjs",
+    "test:overview": "tsx tests/seo/overview.test.ts && tsx tests/browser/overview.mjs",
     "test:image-storage": "tsx --env-file=.env.local tests/storage-s3.test.ts && tsx tests/browser/image-storage.mjs"
   },
   "dependencies": {

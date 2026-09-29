@@ -7,13 +7,14 @@ import { PostsLayoutSwitch } from "@/components/posts-layout-switch";
 import { getT, getTimeZone } from "@/i18n/server";
 import { aiConfigured } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
+import { addDays, getDayKey } from "@/lib/days";
 import { can, canEditPost, isLive } from "@/lib/permissions";
 import { publishDuePosts } from "@/lib/scheduled";
 import { cn } from "@/lib/utils";
 import { NewPostButton } from "../new-post-button";
 import { EditorialCalendar, type CalendarEntry } from "./editorial-calendar";
 import { PlanWithAiButton, type PlanSite } from "./plan-dialog";
-import { MONTH_PATTERN, getDayKey, getMonthGrid, getMonthLabel, getWeekdayLabels, shiftMonth } from "./month-grid";
+import { MONTH_PATTERN, getMonthGrid, getMonthLabel, getWeekdayLabels, shiftMonth } from "./month-grid";
 
 export async function generateMetadata() {
   const t = await getT();
@@ -146,6 +147,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/admin/c
         id: s.id,
         name: s.name,
         baseUrl: s.baseUrl,
+        brief: s.contentBrief,
         defaultLocale: s.defaultLocale,
         categories: allCategories
           .filter((c) => c.siteId === s.id)
@@ -155,7 +157,7 @@ export default async function CalendarPage({ searchParams }: PageProps<"/admin/c
       });
     }
   }
-  const tomorrow = new Date(Date.parse(`${today}T00:00:00Z`) + 24 * 60 * 60_000).toISOString().slice(0, 10);
+  const tomorrow = addDays(today, 1);
 
   // Only what the grid shows, plus the drafts still waiting for a day.
   const shown = entries.filter((e) => e.day === null || (e.day >= firstDay && e.day <= lastDay));

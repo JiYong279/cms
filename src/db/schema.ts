@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+import type { ContentBrief } from "@/lib/ai-brief";
 
 export const roleEnum = pgEnum("role", ["admin", "editor", "writer"]);
 export const localeEnum = pgEnum("locale", ["vi", "en"]);
@@ -42,6 +43,13 @@ export const sites = pgTable("sites", {
   defaultLocale: localeEnum("default_locale").notNull().default("vi"),
   /** Endpoint on the website that refreshes its cache when a post changes. */
   revalidateUrl: text("revalidate_url"),
+  /**
+   * What the blog is for, written once by the team: who reads it, what it leads to, its voice and what
+   * it avoids. Shown on the content overview and given to the AI with every prompt (lib/ai-brief).
+   */
+  contentBrief: jsonb("content_brief").$type<ContentBrief>().notNull().default({}),
+  /** How many articles the team means to publish a week; null until set. */
+  postsPerWeek: integer("posts_per_week"),
   ...timestamps,
 });
 
@@ -107,6 +115,8 @@ export const posts = pgTable(
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
     coverImageUrl: text("cover_image_url"),
     featured: boolean("featured").notNull().default(false),
+    /** The overview article of its category (topic), which the other articles of the topic link to. */
+    pillar: boolean("pillar").notNull().default(false),
     /**
      * The day the team means to publish it (YYYY-MM-DD), placing a draft on the editorial calendar.
      * A plan only: publishing still happens by hand or through scheduledAt.

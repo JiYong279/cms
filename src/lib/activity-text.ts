@@ -17,7 +17,7 @@ import { fmt, type Dict } from "@/i18n";
  *   user.created                             { name, role }
  *   user.updated                             { name, changes: [{ type: "role", from, to } | { type: "lock" } | { type: "unlock" } | { type: "rename", to }] }
  *   user.password_reset                      { name }
- *   site.created / site.updated              { name }
+ *   site.created / site.updated / site.brief_updated   { name }
  */
 export type ActivityChange =
   | { type: "role"; from: string; to: string }

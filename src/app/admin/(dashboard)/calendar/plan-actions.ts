@@ -51,7 +51,7 @@ export async function aiProposePlan(raw: z.input<typeof ProposeInput>): Promise<
   try {
     const ideas = await proposeContentPlan({
       siteId: site.id,
-      site: { name: site.name, baseUrl: site.baseUrl, glossary, categories: categories.map((c) => categoryName(c, input.locale)) },
+      site: { name: site.name, baseUrl: site.baseUrl, brief: site.contentBrief, glossary, categories: categories.map((c) => categoryName(c, input.locale)) },
       locale: input.locale,
       topic: input.topic,
       count: input.count,
@@ -92,6 +92,8 @@ const CreateInput = z.object({
         title: z.string().trim().min(1).max(200),
         focusKeyword: z.string().trim().max(100),
         categoryId: z.uuid().nullable(),
+        /** The overview article of the cluster. */
+        pillar: z.boolean().optional(),
         plannedFor: z.iso.date(),
         why: z.string().trim().max(500),
         outline: z.array(z.string().trim().min(1).max(200)).max(12),
@@ -125,7 +127,7 @@ export async function createPlannedPosts(raw: z.input<typeof CreateInput>): Prom
     for (const idea of input.ideas) {
       const [post] = await tx
         .insert(schema.posts)
-        .values({ siteId: site.id, authorId: user.id, categoryId: idea.categoryId, plannedFor: idea.plannedFor })
+        .values({ siteId: site.id, authorId: user.id, categoryId: idea.categoryId, pillar: idea.pillar ?? false, plannedFor: idea.plannedFor })
         .returning();
       const body = outlineBody(idea, input.locale);
       await tx.insert(schema.postTranslations).values({

@@ -30,6 +30,7 @@ const vi = {
     "posts.deleteAny": "Xoá bài của mọi người, xoá vĩnh viễn khỏi thùng rác",
     "posts.assign": "Giao bài cho người phụ trách",
     "categories.manage": "Thêm, sửa, xoá và sắp xếp danh mục",
+    "strategy.manage": "Sửa định hướng nội dung và mục tiêu số bài mỗi tuần",
     "activity.view": "Xem nhật ký hoạt động",
     "users.manage": "Quản lý người dùng và phân quyền",
     "sites.manage": "Cài đặt website (domain, đường dẫn blog, kết nối)",
@@ -48,6 +49,7 @@ const vi = {
   nav: {
     content: "Nội dung",
     system: "Hệ thống",
+    overview: "Tổng quan nội dung",
     posts: "Bài viết",
     categories: "Danh mục",
     media: "Thư viện ảnh",
@@ -115,6 +117,7 @@ const en: CommonDict = {
     "posts.publish": "Publish, schedule and unpublish",
     "posts.deleteAny": "Delete anyone's articles, delete forever from the trash",
     "categories.manage": "Add, edit, delete and order categories",
+    "strategy.manage": "Edit the content brief and the weekly article target",
     "activity.view": "View the activity log",
     "users.manage": "Manage users and permissions",
     "sites.manage": "Website settings (domain, blog paths, connection)",
@@ -133,6 +136,7 @@ const en: CommonDict = {
   nav: {
     content: "Content",
     system: "System",
+    overview: "Content overview",
     posts: "Articles",
     categories: "Categories",
     media: "Media library",

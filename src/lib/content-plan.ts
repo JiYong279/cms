@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 import type { Locale } from "@/db/schema";
-import { siteBrief } from "./ai-brief";
+import { siteBrief, type BriefSite } from "./ai-brief";
 
 /**
  * "Plan with AI" on the editorial calendar: an AI proposes a cluster of articles around a topic
@@ -52,7 +52,7 @@ const ANSWER_RULE: Record<Locale, string> = {
 };
 
 type PromptInput = {
-  site: { id: string; name: string; baseUrl: string };
+  site: BriefSite;
   locale: Locale;
   topic: string;
   count: number;
@@ -78,10 +78,10 @@ export function contentPlanPrompt(input: PromptInput) {
   const lines = vi
     ? [
         `Bạn là trưởng nhóm nội dung SEO cho website ${input.site.name} (${input.site.baseUrl}).`,
-        `Bối cảnh: ${siteBrief(input.site.id, input.site)}`,
+        `Bối cảnh: ${siteBrief(input.site)}`,
         "",
         `Lập kế hoạch một cụm ${input.count} bài blog bằng tiếng Việt quanh chủ đề: "${input.topic.trim()}".`,
-        "- Bài 1 là bài tổng quan (pillar: yes) bao quát cả chủ đề. Các bài còn lại (pillar: no) mỗi bài trả lời MỘT câu hỏi cụ thể mà chủ phòng khám, spa hay gõ trên Google: cách làm, so sánh, chi phí, checklist, quy định, lỗi hay gặp…",
+        "- Bài 1 là bài tổng quan (pillar: yes) bao quát cả chủ đề. Các bài còn lại (pillar: no) mỗi bài trả lời MỘT câu hỏi cụ thể mà người đọc của website (xem bối cảnh) hay gõ trên Google: cách làm, so sánh, chi phí, checklist, quy định, lỗi hay gặp…",
         "- Không có hai bài trùng ý, và không trùng các bài website đã có.",
         "- title: tiêu đề bài, tối đa khoảng 70 ký tự. keyword: cụm 2–5 từ người ta thật sự gõ để tìm bài đó.",
         input.categories.length ? `- category: đúng một trong: ${input.categories.join(" | ")}` : null,
@@ -95,10 +95,10 @@ export function contentPlanPrompt(input: PromptInput) {
       ]
     : [
         `You lead SEO content for ${input.site.name} (${input.site.baseUrl}).`,
-        `Context: ${siteBrief(input.site.id, input.site)}`,
+        `Context: ${siteBrief(input.site)}`,
         "",
         `Plan a cluster of ${input.count} blog articles in English around the topic: "${input.topic.trim()}".`,
-        "- Article 1 is the overview (pillar: yes) covering the whole topic. Each of the others (pillar: no) answers ONE specific question clinic and spa owners type into Google: how-to, comparison, cost, checklist, regulation, common mistake…",
+        "- Article 1 is the overview (pillar: yes) covering the whole topic. Each of the others (pillar: no) answers ONE specific question the website's readers (see the context) type into Google: how-to, comparison, cost, checklist, regulation, common mistake…",
         "- No two articles on the same point, and none repeating what the website already has.",
         "- title: the headline, about 70 characters at most. keyword: the 2–5 word phrase people really type to find it.",
         input.categories.length ? `- category: exactly one of: ${input.categories.join(" | ")}` : null,

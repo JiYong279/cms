@@ -50,6 +50,13 @@
       "when": 1790651458886,
       "tag": "0006_cover_image_alt",
       "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790659115944,
+      "tag": "0007_content_brief_and_pillar",
+      "breakpoints": true
     }
   ]
 }

@@ -3,12 +3,6 @@ export const MONTH_PATTERN = /^\d{4}-(0[1-9]|1[0-2])$/;
 
 const DAY_MS = 24 * 60 * 60_000;
 
-/** The calendar day (YYYY-MM-DD) an instant falls on in a time zone. */
-export function getDayKey(date: Date, timeZone: string) {
-  // en-CA writes dates as YYYY-MM-DD.
-  return new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone }).format(date);
-}
-
 /** Midnight UTC of a YYYY-MM-DD day: calendar days are counted in UTC so they never shift. */
 function utcDay(key: string) {
   return new Date(`${key}T00:00:00Z`);

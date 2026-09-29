@@ -6,6 +6,7 @@ import { AlertTriangle, CalendarPlus, Check, CircleAlert, Copy, ExternalLink, Lo
 import type { Locale } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
+import type { ContentBrief } from "@/lib/ai-brief";
 import { CADENCES, MAX_PLAN_ARTICLES, contentPlanPrompt, parseContentPlan, planDates, type Cadence, type PlanIdea } from "@/lib/content-plan";
 import { slugify } from "@/lib/posts";
 import { cn } from "@/lib/utils";
@@ -15,6 +16,7 @@ export type PlanSite = {
   id: string;
   name: string;
   baseUrl: string;
+  brief: ContentBrief;
   defaultLocale: Locale;
   categories: { id: string; names: Partial<Record<Locale, string>> }[];
   /** Titles already written, per language: the plan must not repeat them. */
@@ -27,6 +29,14 @@ type Props = {
   /** First day offered for the plan (tomorrow, in the viewer's time zone). */
   startDay: string;
   aiEnabled: boolean;
+  /** The topic the dialog opens with (the content overview plans one topic at a time). */
+  initialTopic?: string;
+};
+
+type ButtonProps = Props & {
+  /** "inline": a small link-like button inside a list, with its own label. */
+  variant?: "primary" | "inline";
+  label?: string;
 };
 
 type Idea = PlanIdea & { keep: boolean; categoryId: string | null };
@@ -38,7 +48,7 @@ const primaryButton =
   "inline-flex items-center gap-2 rounded-lg bg-brand px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-brand-hover disabled:opacity-50";
 
 /** "Plan with AI": the calendar's button and the dialog it opens. */
-export function PlanWithAiButton(props: Props) {
+export function PlanWithAiButton({ variant = "primary", label, ...props }: ButtonProps) {
   const { t } = useI18n();
   const [open, setOpen] = useState(false);
   return (
@@ -47,17 +57,21 @@ export function PlanWithAiButton(props: Props) {
         type="button"
         data-plan-ai
         onClick={() => setOpen(true)}
-        className="inline-flex items-center gap-2 rounded-lg border border-brand bg-white px-4 py-2.5 text-sm font-semibold text-brand shadow-sm hover:bg-brand-soft"
+        className={
+          variant === "inline"
+            ? "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-md border border-brand-light px-2.5 py-1 text-xs font-semibold text-brand hover:bg-brand-soft"
+            : "inline-flex items-center gap-2 rounded-lg border border-brand bg-white px-4 py-2.5 text-sm font-semibold text-brand shadow-sm hover:bg-brand-soft"
+        }
       >
-        <Sparkles className="size-4" />
-        {t.posts.plan.button}
+        <Sparkles className={variant === "inline" ? "size-3.5" : "size-4"} />
+        {label ?? t.posts.plan.button}
       </button>
       {open && <PlanDialog {...props} onClose={() => setOpen(false)} />}
     </>
   );
 }
 
-function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, onClose }: Props & { onClose: () => void }) {
+function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, onClose }: Props & { onClose: () => void }) {
   const { t } = useI18n();
   const p = t.posts.plan;
   const a = t.editor.ai;
@@ -66,7 +80,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, onClose }: Prop
   const [siteId, setSiteId] = useState(defaultSiteId ?? sites[0]?.id ?? "");
   const site = sites.find((s) => s.id === siteId) ?? sites[0];
   const [locale, setLocale] = useState<Locale>(site?.defaultLocale ?? "vi");
-  const [topic, setTopic] = useState("");
+  const [topic, setTopic] = useState(initialTopic ?? "");
   const [count, setCount] = useState(10);
   const [start, setStart] = useState(startDay);
   const [cadence, setCadence] = useState<Cadence>("weekdays");
@@ -149,7 +163,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, onClose }: Prop
       const result = await createPlannedPosts({
         siteId: site.id,
         locale,
-        ideas: kept.map((i, n) => ({ title: i.title, focusKeyword: i.focusKeyword, categoryId: i.categoryId, plannedFor: dates[n], why: i.why, outline: i.outline })),
+        ideas: kept.map((i, n) => ({ title: i.title, focusKeyword: i.focusKeyword, categoryId: i.categoryId, pillar: i.pillar, plannedFor: dates[n], why: i.why, outline: i.outline })),
       });
       if (!result.ok) return setError(result.error);
       onClose();

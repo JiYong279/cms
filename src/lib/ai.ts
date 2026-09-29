@@ -1,7 +1,7 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { Locale } from "@/db/schema";
-import { siteBrief } from "./ai-brief";
+import { siteBrief, type ContentBrief } from "./ai-brief";
 import { SOURCE_RULES_NO_BROWSING } from "./ai-sources";
 import { MAX_PLAN_ARTICLES, contentPlanPrompt, type PlanIdea } from "./content-plan";
 import { seoFixPrompt, type AiField, type FixArticle } from "./seo-fix";
@@ -82,6 +82,7 @@ const BODY_HTML_RULES = `HTML rules for the article body:
 export type SiteContext = {
   name: string;
   baseUrl: string;
+  brief: ContentBrief;
   glossary: { vi: string; en: string; note: string }[];
   /** Category names in the language being written, for drafts. */
   categories: string[];
@@ -146,7 +147,7 @@ export async function draftArticle(input: {
 }): Promise<ArticleFields> {
   if (!aiConfigured()) throw new AiError("not_configured");
   const system = `You write blog articles for a company website.
-${siteBrief(input.siteId, input.site)}
+${siteBrief({ id: input.siteId, ...input.site })}
 Write in ${LANGUAGE[input.locale]}, in a clear, warm and professional voice. Prefer concrete examples,
 short paragraphs and lists over generic statements. Do not invent statistics, prices, laws or
 regulations; when a point depends on a regulation, say readers should check the current text.
@@ -178,7 +179,7 @@ export async function translateArticle(input: {
 }): Promise<ArticleFields> {
   if (!aiConfigured()) throw new AiError("not_configured");
   const system = `You translate blog articles from ${LANGUAGE[input.from]} into ${LANGUAGE[input.to]} for a company website.
-${siteBrief(input.siteId, input.site)}
+${siteBrief({ id: input.siteId, ...input.site })}
 Translate faithfully and naturally, as a native ${LANGUAGE[input.to]} writer would put it; keep the meaning,
 tone and structure. Keep every HTML tag and attribute exactly as it is (links, images, videos, callouts,
 tables); translate only the text and image alt attributes. Adapt the search fields (meta title,
@@ -283,7 +284,7 @@ export async function proposeContentPlan(input: {
     },
   };
   const prompt = contentPlanPrompt({
-    site: { id: input.siteId, name: input.site.name, baseUrl: input.site.baseUrl },
+    site: { id: input.siteId, name: input.site.name, baseUrl: input.site.baseUrl, brief: input.site.brief },
     locale: input.locale,
     topic: input.topic,
     count: input.count,
