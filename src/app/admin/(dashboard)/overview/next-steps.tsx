@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { ArrowRight, CalendarRange, CheckCircle2, Compass, FolderTree, Languages, Star, Target, TrendingDown, type LucideIcon } from "lucide-react";
+import { ArrowRight, CalendarRange, CheckCircle2, Compass, FolderInput, FolderTree, Languages, Star, Target, TrendingDown, type LucideIcon } from "lucide-react";
 import { fmt } from "@/i18n";
 import { getT } from "@/i18n/server";
 import { MIN_CLUSTER_ARTICLES, type NextStep } from "@/lib/content-overview";
@@ -15,7 +15,8 @@ type Props = {
   siteId: string;
   topicNames: Map<string, string>;
   canEditBrief: boolean;
-  canManageCategories: boolean;
+  /** The AI category buttons, for category managers only. */
+  categoryTools: { suggest: React.ReactNode; place: React.ReactNode } | null;
   /** Present when the viewer may plan articles. */
   plan: { site: PlanSite; startDay: string; aiEnabled: boolean } | null;
 };
@@ -24,6 +25,7 @@ const ICONS: Record<NextStep["kind"], LucideIcon> = {
   brief: Compass,
   target: Target,
   categories: FolderTree,
+  uncategorized: FolderInput,
   pillar: Star,
   thin: TrendingDown,
   week: CalendarRange,
@@ -33,7 +35,7 @@ const ICONS: Record<NextStep["kind"], LucideIcon> = {
 
 const linkClass = "inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-brand hover:text-brand-hover";
 
-export async function NextSteps({ steps, siteId, topicNames, canEditBrief, canManageCategories, plan }: Props) {
+export async function NextSteps({ steps, siteId, topicNames, canEditBrief, categoryTools, plan }: Props) {
   const t = await getT();
   const n = t.overview.next;
   const site = encodeURIComponent(siteId);
@@ -48,10 +50,9 @@ export async function NextSteps({ steps, siteId, topicNames, canEditBrief, canMa
       case "target":
         return { text: n.target, action: <Link href={briefHref} className={linkClass}>{n.setTarget} <ArrowRight className="size-3" /></Link> };
       case "categories":
-        return {
-          text: n.categories,
-          action: canManageCategories && <Link href="/admin/categories" className={linkClass}>{n.addCategories} <ArrowRight className="size-3" /></Link>,
-        };
+        return { text: n.categories, action: categoryTools?.suggest };
+      case "uncategorized":
+        return { text: fmt(n.uncategorized, { n: step.n }), action: categoryTools?.place };
       case "pillar": {
         const topic = topicNames.get(step.categoryId) ?? "";
         return { text: fmt(n.pillar, { topic }), action: planButton(topic) };

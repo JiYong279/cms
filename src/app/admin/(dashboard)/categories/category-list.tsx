@@ -24,8 +24,8 @@ export type CategoryRow = {
 
 type Site = { id: string; name: string; baseUrl: string; blogPaths: Record<Locale, string> };
 
-/** One website's categories: order, edit, delete, and a form to add one. */
-export function CategoryList({ site, rows }: { site: Site; rows: CategoryRow[] }) {
+/** One website's categories: order, edit, delete, and a form to add one; `tools` holds the AI buttons. */
+export function CategoryList({ site, rows, tools }: { site: Site; rows: CategoryRow[]; tools: React.ReactNode }) {
   const { t: dict } = useI18n();
   const t = dict.categories;
   const [adding, setAdding] = useState(false);
@@ -48,14 +48,17 @@ export function CategoryList({ site, rows }: { site: Site; rows: CategoryRow[] }
           <h2 className="font-semibold">{site.name}</h2>
           <p className="text-xs text-zinc-500">{site.baseUrl.replace(/^https?:\/\//, "")}</p>
         </div>
-        <button
-          type="button"
-          onClick={() => setAdding((v) => !v)}
-          className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-brand hover:border-brand-light"
-        >
-          {adding ? <X className="size-4" /> : <Plus className="size-4" />}
-          {adding ? t.cancel : t.add}
-        </button>
+        <div className="flex flex-wrap items-center gap-2">
+          {tools}
+          <button
+            type="button"
+            onClick={() => setAdding((v) => !v)}
+            className="inline-flex items-center gap-1.5 rounded-lg border border-zinc-200 px-3 py-1.5 text-sm font-medium text-brand hover:border-brand-light"
+          >
+            {adding ? <X className="size-4" /> : <Plus className="size-4" />}
+            {adding ? t.cancel : t.add}
+          </button>
+        </div>
       </div>
 
       {adding && (

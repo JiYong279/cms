@@ -182,6 +182,7 @@ export type NextStep =
   | { kind: "brief" }
   | { kind: "target" }
   | { kind: "categories" }
+  | { kind: "uncategorized"; n: number }
   | { kind: "pillar"; categoryId: string }
   | { kind: "thin"; categoryId: string; have: number }
   | { kind: "week"; start: string; have: number; target: number }
@@ -193,6 +194,8 @@ export function getNextSteps(input: {
   hasBrief: boolean;
   postsPerWeek: number | null;
   hasCategories: boolean;
+  /** Articles (trash left out) without a category of the website. */
+  uncategorized: number;
   coverage: TopicCoverage[];
   weeks: WeekLoad[];
   gaps: LanguageGap[];
@@ -201,6 +204,8 @@ export function getNextSteps(input: {
   if (!input.hasBrief) steps.push({ kind: "brief" });
   if (input.postsPerWeek === null) steps.push({ kind: "target" });
   if (!input.hasCategories) steps.push({ kind: "categories" });
+  // Articles outside every topic are not counted anywhere: sort them before judging the topics.
+  else if (input.uncategorized > 0) steps.push({ kind: "uncategorized", n: input.uncategorized });
   const topics = input.coverage.filter((c): c is TopicCoverage & { categoryId: string } => c.categoryId !== null);
   // An overview being written already answers "no overview yet".
   for (const c of topics) if (c.needs.includes("pillar") && !c.pillar) steps.push({ kind: "pillar", categoryId: c.categoryId });

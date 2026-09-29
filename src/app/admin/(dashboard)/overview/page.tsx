@@ -26,6 +26,8 @@ import { LOCALES } from "@/lib/posts";
 import { publishDuePosts } from "@/lib/scheduled";
 import { cn } from "@/lib/utils";
 import type { PlanSite } from "../calendar/plan-dialog";
+import { PlaceArticlesButton } from "../categories/place-dialog";
+import { SuggestCategoriesButton } from "../categories/suggest-dialog";
 import { BriefCard } from "./brief-card";
 import { CoverageSection } from "./coverage-section";
 import { NextSteps } from "./next-steps";
@@ -80,10 +82,12 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
   const coverage = getTopicCoverage(overviewPosts, categories.map((c) => c.id), today, timeZone);
   const weeks = getWeekLoad(overviewPosts, today, timeZone);
   const gaps = getLanguageGaps(overviewPosts);
+  const uncategorized = posts.filter((p) => !p.categoryId || !categories.some((c) => c.id === p.categoryId));
   const steps = getNextSteps({
     hasBrief: hasBrief(site.contentBrief),
     postsPerWeek: site.postsPerWeek,
     hasCategories: categories.length > 0,
+    uncategorized: uncategorized.length,
     coverage,
     weeks,
     gaps,
@@ -132,6 +136,31 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
     ) as Record<Locale, string[]>,
   };
   const plan = canPlan ? { site: planSite, startDay: addDays(today, 1), aiEnabled: aiConfigured() } : null;
+  // The AI category buttons, for those who manage categories.
+  const mainOf = (p: (typeof posts)[number]) => p.translations.find((tr) => tr.locale === site.defaultLocale) ?? p.translations[0];
+  const briefSite = { id: site.id, name: site.name, baseUrl: site.baseUrl, brief: site.contentBrief };
+  const categoryRows = categories.map((c) => ({ id: c.id, nameVi: categoryName(c, "vi"), nameEn: categoryName(c, "en") }));
+  const suggestProps = {
+    site: briefSite,
+    existing: categoryRows.map((c) => ({ ...c, posts: posts.filter((p) => p.categoryId === c.id).length })),
+    titles: posts.map((p) => ({ title: mainOf(p)?.title ?? "", category: topicNames.get(p.categoryId ?? "") ?? null })),
+    aiEnabled: aiConfigured(),
+  };
+  const categoryTools = can(user.role, "categories.manage")
+    ? {
+        suggest: <SuggestCategoriesButton {...suggestProps} variant="inline" />,
+        place: (
+          <PlaceArticlesButton
+            site={briefSite}
+            categories={categoryRows}
+            articles={uncategorized.map((p) => ({ id: p.id, title: mainOf(p)?.title ?? "", excerpt: mainOf(p)?.excerpt ?? "" }))}
+            aiEnabled={aiConfigured()}
+            variant="inline"
+          />
+        ),
+        review: <SuggestCategoriesButton {...suggestProps} />,
+      }
+    : null;
   const postHref = (postId: string) => {
     const post = posts.find((p) => p.id === postId);
     if (!post || (!seesAll && post.authorId !== user.id)) return null;
@@ -167,7 +196,7 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
           siteId={site.id}
           topicNames={topicNames}
           canEditBrief={can(user.role, "strategy.manage")}
-          canManageCategories={can(user.role, "categories.manage")}
+          categoryTools={categoryTools}
           plan={plan}
         />
         <BriefCard
@@ -191,6 +220,7 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
           monthly={getMonthlyOutput(overviewPosts, today, timeZone)}
           postHref={postHref}
           plan={plan}
+          categoryTool={categoryTools?.review ?? null}
         />
         <WeeksSection siteId={site.id} weeks={weeks} target={site.postsPerWeek} gaps={shownGaps} />
         <TodoSection todo={todo} ownOnly={!seesAll} timeZone={timeZone} />

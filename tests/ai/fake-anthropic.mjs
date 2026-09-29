@@ -59,7 +59,7 @@ function seoFields(properties) {
 
 /** "Plan with AI": as many ideas as asked for, the first one the overview. */
 function contentPlan(prompt, properties) {
-  const count = Number(prompt.match(/(?:một cụm|cluster of) (d+)/)?.[1] ?? 3);
+  const count = Number(prompt.match(/(?:một cụm|cluster of) (\d+)/)?.[1] ?? 3);
   const categories = properties.ideas.items.properties.category?.enum;
   const ideas = Array.from({ length: count }, (_, i) => ({
     title: `[AI] Bài kế hoạch ${i + 1}`,
@@ -70,6 +70,20 @@ function contentPlan(prompt, properties) {
     outline: ["Mục một", "Mục hai", "Mục ba"],
   }));
   return { ideas };
+}
+
+/** "Propose categories": keeps the first existing category and adds one new topic. */
+function categoryPlan(prompt) {
+  const existing = [...prompt.matchAll(/^- (.+) \/ (.+) \(\d+ (?:bài|articles)\)$/gm)].map((m) => ({ vi: m[1], en: m[2] }));
+  const kept = existing.slice(0, 1).map((c) => ({ vi: c.vi, en: c.en, about_vi: "", about_en: "", from: [c.vi], why: "Vẫn hợp lý." }));
+  return { categories: [...kept, { vi: "[AI] Chủ đề mới thử", en: "[AI] New test topic", about_vi: "Giới thiệu chủ đề mới.", about_en: "About the new topic.", from: [], why: "Nhiều người tìm." }] };
+}
+
+/** "Sort uncategorised articles": every numbered article into the first category offered. */
+function placements(prompt, properties) {
+  const category = properties.placements.items.properties.category.enum.find((c) => c !== "-");
+  const numbers = [...prompt.matchAll(/^(\d+)\. /gm)].map((m) => Number(m[1]));
+  return { placements: numbers.map((n) => ({ n, category })) };
 }
 
 function sse(res, events) {
@@ -97,6 +111,10 @@ export function startFakeAnthropic() {
           ? seoFields(tool.input_schema.properties)
           : tool?.name === "content_plan"
             ? contentPlan(prompt, tool.input_schema.properties)
+          : tool?.name === "categories"
+            ? categoryPlan(prompt)
+          : tool?.name === "placements"
+            ? placements(prompt, tool.input_schema.properties)
           : request.system?.startsWith("You translate")
             ? translation(prompt)
             : draft(prompt, categories);

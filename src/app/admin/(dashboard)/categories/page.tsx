@@ -3,10 +3,13 @@ import { asc, count, isNull } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { NoAccess } from "@/components/no-access";
 import { getT } from "@/i18n/server";
+import { aiConfigured } from "@/lib/ai";
 import { requireUser } from "@/lib/auth";
-import { categorySlug } from "@/lib/categories";
+import { categoryName, categorySlug } from "@/lib/categories";
 import { can } from "@/lib/permissions";
 import { CategoryList, type CategoryRow } from "./category-list";
+import { PlaceArticlesButton } from "./place-dialog";
+import { SuggestCategoriesButton } from "./suggest-dialog";
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getT();
@@ -19,7 +22,7 @@ export default async function CategoriesPage() {
   if (!can(me.role, "categories.manage")) return <NoAccess message={t.categories.noAccess} />;
 
   const db = await getDb();
-  const [sites, categories, counts] = await Promise.all([
+  const [sites, categories, counts, posts] = await Promise.all([
     db.select().from(schema.sites).orderBy(asc(schema.sites.name)),
     db.select().from(schema.categories).orderBy(asc(schema.categories.position), asc(schema.categories.createdAt)),
     // Articles in the trash do not count.
@@ -28,7 +31,10 @@ export default async function CategoriesPage() {
       .from(schema.posts)
       .where(isNull(schema.posts.deletedAt))
       .groupBy(schema.posts.categoryId),
+    // What the AI reads to propose categories, and the articles it may sort.
+    db.query.posts.findMany({ where: (p, { isNull }) => isNull(p.deletedAt), with: { translations: true }, orderBy: (p, { asc }) => [asc(p.createdAt)] }),
   ]);
+  const aiEnabled = aiConfigured();
   const postCounts = new Map(counts.map((c) => [c.categoryId, c.n]));
   const categoriesOf = (siteId: string) => categories.filter((c) => c.siteId === siteId).length;
   // Websites with categories first.
@@ -53,11 +59,36 @@ export default async function CategoriesPage() {
               descriptionEn: c.descriptions.en ?? "",
               posts: postCounts.get(c.id) ?? 0,
             }));
+          const own = categories.filter((c) => c.siteId === site.id);
+          const sitePosts = posts.filter((p) => p.siteId === site.id);
+          const main = (p: (typeof posts)[number]) => p.translations.find((tr) => tr.locale === site.defaultLocale) ?? p.translations[0];
+          const briefSite = { id: site.id, name: site.name, baseUrl: site.baseUrl, brief: site.contentBrief };
           return (
             <CategoryList
               key={site.id}
               site={{ id: site.id, name: site.name, baseUrl: site.baseUrl, blogPaths: site.blogPaths }}
               rows={rows}
+              tools={
+                <>
+                  <SuggestCategoriesButton
+                    site={briefSite}
+                    existing={rows.map((r) => ({ id: r.id, nameVi: r.nameVi, nameEn: r.nameEn, posts: r.posts }))}
+                    titles={sitePosts.map((p) => {
+                      const category = own.find((c) => c.id === p.categoryId);
+                      return { title: main(p)?.title ?? "", category: category ? categoryName(category, "vi") : null };
+                    })}
+                    aiEnabled={aiEnabled}
+                  />
+                  <PlaceArticlesButton
+                    site={briefSite}
+                    categories={rows.map((r) => ({ id: r.id, nameVi: r.nameVi, nameEn: r.nameEn }))}
+                    articles={sitePosts
+                      .filter((p) => !p.categoryId || !own.some((c) => c.id === p.categoryId))
+                      .map((p) => ({ id: p.id, title: main(p)?.title ?? "", excerpt: main(p)?.excerpt ?? "" }))}
+                    aiEnabled={aiEnabled}
+                  />
+                </>
+              }
             />
           );
         })}

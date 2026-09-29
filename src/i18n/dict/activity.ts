@@ -28,6 +28,8 @@ const vi = {
     "post.ai_translated": "Dùng AI dịch bản {source} sang bản {locale}",
     "post.ai_seo_fixed": "Dùng AI sửa phần SEO bản {locale}",
     "post.ai_planned": "Dùng AI lên kế hoạch {n} bài về “{topic}” cho {name}",
+    "post.ai_categorized": "Dùng AI xếp {n} bài vào danh mục cho {name}",
+    "post.categorized": "Xếp vào danh mục {name}",
     "post.images_confirmed": "Xác nhận được phép dùng {n} ảnh trong bản {locale}",
     "post.synced": "Đánh dấu bản {locale} đã cập nhật theo bản {source}",
     "post.planned": "Đặt ngày dự kiến đăng {date}",
@@ -48,6 +50,7 @@ const vi = {
     "category.created": "Thêm danh mục {name}",
     "category.updated": "Sửa danh mục {name}",
     "category.deleted": "Xoá danh mục {name}",
+    "category.ai_proposed": "Dùng AI đề xuất {n} danh mục cho {name}",
     "auth.login": "Đăng nhập",
   },
   changes: {
@@ -92,6 +95,8 @@ const en: ActivityDict = {
     "post.ai_translated": "Translated the {source} version into {locale} with AI",
     "post.ai_seo_fixed": "Fixed the SEO fields of the {locale} version with AI",
     "post.ai_planned": "Planned {n} articles about “{topic}” for {name} with AI",
+    "post.ai_categorized": "Sorted {n} articles into categories for {name} with AI",
+    "post.categorized": "Moved to the category {nameEn}",
     "post.images_confirmed": "Confirmed we may use {n} images in the {locale} version",
     "post.synced": "Marked the {locale} version as up to date with {source}",
     "post.planned": "Planned it for {date}",
@@ -112,6 +117,7 @@ const en: ActivityDict = {
     "category.created": "Added the category {nameEn}",
     "category.updated": "Edited the category {nameEn}",
     "category.deleted": "Deleted the category {nameEn}",
+    "category.ai_proposed": "Had AI propose {n} categories for {name}",
     "auth.login": "Signed in",
   },
   changes: {

@@ -107,7 +107,7 @@ const unescape = (s) => s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replac
 /** A website's content brief and weekly target as saved now (read from its edit form), to put back after a test. */
 export async function readBrief(client, siteId) {
   const html = (await client.req(`/admin/overview?site=${siteId}&edit=brief`)).text;
-  const brief = Object.fromEntries(BRIEF_FIELDS.map((f) => [f, unescape(html.match(new RegExp(`<textarea[^>]*name="${f}"[^>]*>([\s\S]*?)</textarea>`))?.[1] ?? "")]));
+  const brief = Object.fromEntries(BRIEF_FIELDS.map((f) => [f, unescape(html.match(new RegExp(`<textarea[^>]*name="${f}"[^>]*>([\\s\\S]*?)</textarea>`))?.[1] ?? "")]));
   const target = html.match(/name="postsPerWeek"[^>]*value="(\d+)"|value="(\d+)"[^>]*name="postsPerWeek"/)?.slice(1).find(Boolean);
   return { siteId, brief, postsPerWeek: target ? Number(target) : null };
 }

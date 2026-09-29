@@ -13,6 +13,8 @@ import { fmt, type Dict } from "@/i18n";
  *   post.planned                             { date: "YYYY-MM-DD" }
  *   post.assigned                            { name }
  *   post.ai_planned                          { topic, n, name }
+ *   post.ai_categorized / category.ai_proposed   { n, name }   (name: the website)
+ *   post.categorized                         { name, nameEn }   (the category)
  *   post.created                             (uses the entry's website name)
  *   user.created                             { name, role }
  *   user.updated                             { name, changes: [{ type: "role", from, to } | { type: "lock" } | { type: "unlock" } | { type: "rename", to }] }

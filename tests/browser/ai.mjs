@@ -37,6 +37,8 @@ page.on("dialog", (d) => d.accept());
 let postId;
 /** The brief before step 6 changed it, to put back. */
 let briefBefore = null;
+/** The uncategorised article step 7 sorts. */
+let extraId = null;
 
 const editorState = () =>
   page.evaluate(() => {
@@ -181,6 +183,40 @@ try {
   expect("the plan request carries the team's brief", planRequest.messages[0].content.includes("Readers: Chủ chuỗi nha khoa thử AI"));
   expect("the built-in AI's 3 ideas are shown for review", (await page.$$("[data-plan-review] [data-idea]")).length === 3);
   expect("activity log records the AI plan", (await admin.req("/admin/activity")).text.includes("Dùng AI lên kế hoạch 3 bài"));
+  await page.keyboard.press("Escape");
+
+  // 7. Categories with the built-in AI: a proposal to review, and an uncategorised article sorted.
+  const extra = await admin.submit("/admin", 'name="siteId"', { siteId: "qubx" });
+  extraId = extra.location?.match(/posts\/([0-9a-f-]{36})/)?.[1] ?? null;
+  await admin.call(`/admin/posts/${extraId}?locale=vi`, "savePost", [
+    {
+      postId: extraId, locale: "vi", status: "draft", title: "[AI] Bài chưa xếp", slug: "", excerpt: "", contentJson: null, contentHtml: "<p>x</p>",
+      metaTitle: "", metaDescription: "", focusKeyword: "", noindex: false, scheduledAt: null, categoryId: null, featured: false, coverImageUrl: "",
+    },
+  ]);
+  const inQubx = (selector) =>
+    page.evaluate((s) => [...document.querySelectorAll("section")].find((x) => x.querySelector("h2")?.textContent === "Qub-X")?.querySelector(s)?.click(), selector);
+  await page.goto(`${CMS}/admin/categories`, { waitUntil: "networkidle0" });
+  await inQubx("[data-suggest-categories]");
+  await page.waitForSelector("[data-suggest-dialog]", { visible: true });
+  await page.click("[data-suggest-dialog] button::-p-text(Nhờ AI đề xuất)");
+  await page.waitForSelector("[data-suggest-review]", { timeout: 20000 });
+  const categoryRequest = requests.at(-1);
+  expect(
+    "the category request goes through the categories tool, with the brief and the categories",
+    categoryRequest.tool_choice?.name === "categories" && categoryRequest.messages[0].content.includes("Readers: Chủ chuỗi nha khoa thử AI") && / \(\d+ bài\)$/m.test(categoryRequest.messages[0].content),
+  );
+  const kinds = await page.$$eval("[data-suggest-review] [data-idea-kind]", (els) => els.map((e) => e.getAttribute("data-idea-kind")).join());
+  expect("the proposal is reviewed: a kept category and a new one", kinds === "keep,new", kinds);
+  await page.keyboard.press("Escape");
+  await inQubx("[data-place-articles]");
+  await page.waitForSelector("[data-place-dialog]", { visible: true });
+  await page.click("[data-place-dialog] button::-p-text(Nhờ AI xếp bài)");
+  await page.waitForSelector("[data-place-review]", { timeout: 20000 });
+  expect("the placement request goes through the placements tool", requests.at(-1).tool_choice?.name === "placements");
+  expect("the uncategorised article gets a category to review", !!(await page.$eval(`[data-place-row="${extraId}"] select`, (s) => s.value)));
+  const categoryLog = (await admin.req("/admin/activity")).text;
+  expect("activity log records both AI runs", categoryLog.includes("Dùng AI đề xuất 2 danh mục cho Qub-X") && categoryLog.includes("Dùng AI xếp"));
 } catch (error) {
   failures++;
   console.log("ERROR:", error.message);
@@ -191,7 +227,7 @@ try {
   fake.close();
   const admin = new Client();
   await admin.login(ADMIN.email, ADMIN.password);
-  if (postId) await destroyPosts(admin, [postId]);
+  await destroyPosts(admin, [postId, extraId].filter(Boolean));
   if (briefBefore) await writeBrief(admin, briefBefore);
   console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
   process.exit(failures ? 1 : 0);

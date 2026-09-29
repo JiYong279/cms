@@ -2,9 +2,10 @@
 
 import { useEffect, useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CalendarPlus, Check, CircleAlert, Copy, ExternalLink, Loader2, RotateCcw, Sparkles, Star, X } from "lucide-react";
+import { AlertTriangle, CalendarPlus, CircleAlert, Loader2, RotateCcw, Sparkles, Star, X } from "lucide-react";
 import type { Locale } from "@/db/schema";
 import { fmt } from "@/i18n";
+import { AiEnginePanel, type AiEngine } from "@/components/ai-engine-panel";
 import { useI18n } from "@/i18n/client";
 import type { ContentBrief } from "@/lib/ai-brief";
 import { CADENCES, MAX_PLAN_ARTICLES, contentPlanPrompt, parseContentPlan, planDates, type Cadence, type PlanIdea } from "@/lib/content-plan";
@@ -84,9 +85,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
   const [count, setCount] = useState(10);
   const [start, setStart] = useState(startDay);
   const [cadence, setCadence] = useState<Cadence>("weekdays");
-  const [engine, setEngine] = useState<"own" | "builtin">(aiEnabled ? "builtin" : "own");
-  const [prompt, setPrompt] = useState("");
-  const [copied, setCopied] = useState<"yes" | "manual" | null>(null);
+  const [engine, setEngine] = useState<AiEngine>(aiEnabled ? "builtin" : "own");
   const [pasted, setPasted] = useState("");
   const [ideas, setIdeas] = useState<Idea[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -119,15 +118,12 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
     setError(null);
   }
 
-  function copyPrompt() {
-    if (!topicOk) return setError(a.errors.topic);
-    const text = contentPlanPrompt({ site, locale, topic, count, categories: categoryNames, existing, answer: "paste" });
-    setPrompt(text);
-    navigator.clipboard.writeText(text).then(
-      () => setCopied("yes"),
-      // No clipboard access (e.g. a plain-http address): the prompt is shown to copy by hand.
-      () => setCopied("manual"),
-    );
+  function buildPrompt() {
+    if (!topicOk) {
+      setError(a.errors.topic);
+      return null;
+    }
+    return contentPlanPrompt({ site, locale, topic, count, categories: categoryNames, existing, answer: "paste" });
   }
 
   function onPaste(value: string) {
@@ -201,7 +197,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
               {sites.length > 1 && (
                 <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
                   {p.site}
-                  <select value={site.id} onChange={(e) => (setSiteId(e.target.value), setPrompt(""))} className={inputClass}>
+                  <select value={site.id} onChange={(e) => setSiteId(e.target.value)} className={inputClass}>
                     {sites.map((s) => (
                       <option key={s.id} value={s.id}>
                         {s.name}
@@ -212,7 +208,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
               )}
               <label className="flex flex-col gap-1.5 text-sm font-medium text-zinc-700">
                 {p.language}
-                <select value={locale} onChange={(e) => (setLocale(e.target.value as Locale), setPrompt(""))} className={inputClass}>
+                <select value={locale} onChange={(e) => setLocale(e.target.value as Locale)} className={inputClass}>
                   {LOCALES.map((l) => (
                     <option key={l} value={l}>
                       {t.common.locales[l]}
@@ -226,7 +222,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
               <textarea
                 rows={2}
                 value={topic}
-                onChange={(e) => (setTopic(e.target.value), setPrompt(""))}
+                onChange={(e) => setTopic(e.target.value)}
                 placeholder={p.topicPlaceholder}
                 className={cn(inputClass, "resize-none")}
               />
@@ -239,7 +235,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
                   min={1}
                   max={MAX_PLAN_ARTICLES}
                   value={count}
-                  onChange={(e) => (setCount(Math.max(1, Math.min(MAX_PLAN_ARTICLES, Number(e.target.value) || 1))), setPrompt(""))}
+                  onChange={(e) => setCount(Math.max(1, Math.min(MAX_PLAN_ARTICLES, Number(e.target.value) || 1)))}
                   className={inputClass}
                 />
               </label>
@@ -260,68 +256,15 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
             </div>
             <p className="-mt-1 text-xs text-zinc-500">{p.cadenceHint}</p>
 
-            <div className="mt-2 flex rounded-lg bg-zinc-100 p-1" role="radiogroup" aria-label={a.engine}>
-              {(["own", "builtin"] as const).map((e) => (
-                <button
-                  key={e}
-                  type="button"
-                  role="radio"
-                  aria-checked={engine === e}
-                  onClick={() => (setEngine(e), setError(null))}
-                  className={cn("flex-1 rounded-md px-3 py-1.5 text-sm font-medium transition", engine === e ? "bg-white text-ink shadow-sm" : "text-zinc-500 hover:text-zinc-800")}
-                >
-                  {e === "own" ? a.engineOwn : a.engineBuiltin}
-                </button>
-              ))}
-            </div>
-            <p className="text-xs text-zinc-500">{engine === "own" ? a.engineOwnHint : aiEnabled ? a.engineBuiltinHint : a.errors.not_configured}</p>
-
-            {engine === "own" && (
-              <>
-                <div className="flex flex-wrap items-center gap-3">
-                  <button
-                    type="button"
-                    onClick={copyPrompt}
-                    className="inline-flex items-center gap-2 rounded-lg border border-brand px-3.5 py-2 text-sm font-semibold text-brand hover:bg-brand-soft"
-                  >
-                    <Copy className="size-4" />
-                    {a.copyPrompt}
-                  </button>
-                  <a href="https://claude.ai/new" target="_blank" rel="noopener noreferrer" className="inline-flex items-center gap-1.5 text-sm font-semibold text-brand hover:text-brand-hover">
-                    {p.openClaude}
-                    <ExternalLink className="size-3.5" />
-                  </a>
-                  {copied === "yes" && (
-                    <span role="status" className="flex items-center gap-1.5 text-xs font-medium text-emerald-700">
-                      <Check className="size-3.5" />
-                      {a.copied}
-                    </span>
-                  )}
-                </div>
-                {prompt && (
-                  <details open={copied === "manual"} className="rounded-lg border border-zinc-200 bg-zinc-50 text-xs">
-                    <summary className="cursor-pointer px-3 py-2 font-medium text-zinc-600">{copied === "manual" ? a.copyFailed : a.showPrompt}</summary>
-                    <textarea
-                      readOnly
-                      value={prompt}
-                      rows={6}
-                      aria-label={a.showPrompt}
-                      onFocus={(e) => e.currentTarget.select()}
-                      className="block w-full resize-y border-t border-zinc-200 bg-white p-3 font-mono text-[11px] leading-relaxed text-zinc-700 outline-none"
-                    />
-                  </details>
-                )}
-                <textarea
-                  rows={4}
-                  value={pasted}
-                  onChange={(e) => onPaste(e.target.value)}
-                  placeholder={p.pastePlaceholder}
-                  aria-label={a.step2}
-                  className={cn(inputClass, "resize-y font-mono text-xs")}
-                />
-                <p className="-mt-1 text-xs text-zinc-500">{a.step2Hint}</p>
-              </>
-            )}
+            <AiEnginePanel
+              engine={engine}
+              onEngine={(e) => (setEngine(e), setError(null))}
+              aiEnabled={aiEnabled}
+              buildPrompt={buildPrompt}
+              pasted={pasted}
+              onPaste={onPaste}
+              pastePlaceholder={p.pastePlaceholder}
+            />
           </fieldset>
         ) : (
           <div className="mt-5" data-plan-review>

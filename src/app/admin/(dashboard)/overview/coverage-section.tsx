@@ -18,9 +18,11 @@ type Props = {
   /** Where an article opens, or null when the viewer may not open it. */
   postHref: (postId: string) => string | null;
   plan: { site: PlanSite; startDay: string; aiEnabled: boolean } | null;
+  /** "Propose categories with AI", for category managers. */
+  categoryTool: React.ReactNode;
 };
 
-export async function CoverageSection({ coverage, topicNames, stats, monthly, postHref, plan }: Props) {
+export async function CoverageSection({ coverage, topicNames, stats, monthly, postHref, plan, categoryTool }: Props) {
   const t = await getT();
   const c = t.overview.coverage;
   const topics = coverage.filter((x) => x.categoryId !== null);
@@ -43,8 +45,13 @@ export async function CoverageSection({ coverage, topicNames, stats, monthly, po
 
   return (
     <section data-coverage className="rounded-xl border border-zinc-200 bg-white p-5 shadow-sm sm:p-6">
-      <h2 className="font-semibold text-ink">{c.title}</h2>
-      <p className="mt-1 text-sm text-zinc-500">{fmt(c.hint, { min: MIN_CLUSTER_ARTICLES })}</p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-0">
+          <h2 className="font-semibold text-ink">{c.title}</h2>
+          <p className="mt-1 text-sm text-zinc-500">{fmt(c.hint, { min: MIN_CLUSTER_ARTICLES })}</p>
+        </div>
+        {categoryTool}
+      </div>
 
       <div className="mt-5 grid grid-cols-2 gap-3 lg:grid-cols-4">
         {cards.map((card) => (

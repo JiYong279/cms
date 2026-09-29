@@ -89,15 +89,20 @@ check("a year without changes is out of date", titles("outdated") === "old");
 check("a planned day that passed shows once per article", titles("overdue") === "late", titles("overdue"));
 check("a draft untouched for a month with no day planned is forgotten", titles("abandoned") === "forgotten", titles("abandoned"));
 
-const steps = getNextSteps({ hasBrief: false, postsPerWeek: 2, hasCategories: true, coverage, weeks, gaps });
+const steps = getNextSteps({ hasBrief: false, postsPerWeek: 2, hasCategories: true, uncategorized: 1, coverage, weeks, gaps });
 const kinds = steps.map((s) => s.kind).join();
 check("the brief comes first", steps[0].kind === "brief");
+check("articles without a category are sorted before the topics are judged", steps[1].kind === "uncategorized" && steps[1].n === 1 && steps[2].kind === "pillar", kinds);
+check("with no categories at all, creating them is asked instead", (() => {
+  const k = getNextSteps({ hasBrief: true, postsPerWeek: 2, hasCategories: false, uncategorized: 5, coverage: [], weeks, gaps: [] }).map((s) => s.kind);
+  return k[0] === "categories" && !k.includes("uncategorized");
+})());
 check("a topic whose overview is being written is not asked for one again", !steps.some((s) => s.kind === "pillar" && s.categoryId === "ops") && steps.some((s) => s.kind === "pillar" && s.categoryId === "empty"));
 check("the thinnest topics come first", steps.filter((s) => s.kind === "thin").map((s) => (s.kind === "thin" ? s.categoryId : "")).join() === "empty,ops,emr", kinds);
 check("weeks below the target are listed", steps.filter((s) => s.kind === "week").length === 4, kinds);
 check("missing translations and quiet topics come last", kinds.endsWith("translate,quiet"), kinds);
 check("without a target the weeks are not judged, and the target is asked for", (() => {
-  const k = getNextSteps({ hasBrief: true, postsPerWeek: null, hasCategories: true, coverage, weeks, gaps }).map((s) => s.kind);
+  const k = getNextSteps({ hasBrief: true, postsPerWeek: null, hasCategories: true, uncategorized: 0, coverage, weeks, gaps }).map((s) => s.kind);
   return k[0] === "target" && !k.includes("week");
 })());
 
