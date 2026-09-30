@@ -50,7 +50,57 @@ CMS chạy bằng Docker cùng Postgres: xem hướng dẫn đầu file `docker-
 5. **Hẹn giờ đăng bài**: container `cms-cron` gọi `GET /api/cron/publish-scheduled` 5 phút một lần với header `Authorization: Bearer <CRON_SECRET>`.
 6. **Website Qub-X** (Vercel của `coauths-web1`): đặt `CMS_API_URL=<địa chỉ CMS>` và cùng `CMS_REVALIDATE_SECRET`.
 7. Trong CMS, **Cài đặt website → Qub-X**: đổi **URL làm mới** thành `https://www.qub-x.com/api/cms/revalidate`, bấm **Gửi thử**.
-8. **Sao lưu**: bật sao lưu tự động / point-in-time restore của nhà cung cấp Postgres.
+8. **Sao lưu**: xem mục [Sao lưu](#sao-lưu) bên dưới.
+
+## Sao lưu
+
+Bài viết, bản nháp, kế hoạch nằm trong Postgres; ảnh nằm trong MinIO. Cả hai ở trên cùng một server, nên có hai lớp sao lưu (`docker-compose.vps.yml`):
+
+| | Chạy | Giữ | Bảo vệ khỏi |
+|---|---|---|---|
+| `cms-backup` | Mỗi ngày, và **trước mỗi lần deploy** (bước "Migrate and start" trong `ci.yml`; sao lưu lỗi thì dừng deploy) | `BACKUP_KEEP_DAYS` ngày (mặc định 14), trong volume `cms_backups` | Xoá nhầm, migration hỏng |
+| `cms-backup-offsite` | Mỗi ngày: chép các bản sao lưu database **và toàn bộ ảnh** sang S3 khác (DigitalOcean Spaces) | Database: `BACKUP_OFFSITE_KEEP_DAYS` ngày (mặc định 30). Ảnh: không bao giờ xoá ở đó | Mất cả server |
+
+**Bật sao lưu ra ngoài** (một lần): tạo một Space (hoặc thư mục trong Space có sẵn) và một access key chỉ dùng được Space đó, rồi thêm vào `/opt/cms/.env`:
+
+```bash
+COMPOSE_PROFILES=offsite
+BACKUP_S3_ENDPOINT=https://sgp1.digitaloceanspaces.com
+BACKUP_S3_BUCKET=<tên Space>
+BACKUP_S3_ACCESS_KEY_ID=...
+BACKUP_S3_SECRET_ACCESS_KEY=...
+```
+
+Lần deploy sau sẽ bật nó (hoặc chạy ngay: `docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d`). Bản sao nằm ở `<Space>/cms-backups/db` và `<Space>/cms-backups/media`.
+
+**Kiểm tra** (trên server, trong `/opt/cms`, đặt `c="docker compose -f docker-compose.yml -f docker-compose.vps.yml"`):
+
+```bash
+$c ps cms-backup cms-backup-offsite     # "(healthy)": bản sao mới nhất chưa quá 26 giờ
+$c logs --tail 20 cms-backup            # [backup] wrote cms-….dump
+$c exec cms-backup ls -lh /backups/db   # các bản sao lưu đang giữ trên server
+```
+
+**Khôi phục database** từ một bản trên server (ghi đè dữ liệu hiện tại; dừng app trước để không ai ghi vào giữa chừng):
+
+```bash
+$c stop cms-web cms-cron
+$c exec cms-backup pg_restore --clean --if-exists --no-owner --single-transaction --dbname=cms /backups/db/cms-<ngày>.dump
+$c start cms-web cms-cron
+```
+
+Muốn xem trước mà không đè: `$c exec cms-backup createdb thu` rồi `pg_restore --no-owner --dbname=thu …`, xem xong `dropdb thu`.
+
+**Khôi phục từ bản ngoài server** (khi dựng lại server mới): chạy stack như bình thường, rồi
+
+```bash
+$c exec cms-backup-offsite mcli cp offsite/<Space>/cms-backups/db/cms-<ngày>.dump /tmp/
+$c cp cms-backup-offsite:/tmp/cms-<ngày>.dump ./ && $c cp ./cms-<ngày>.dump cms-backup:/backups/db/
+# rồi khôi phục database như trên; ảnh:
+$c exec cms-backup-offsite mcli mirror offsite/<Space>/cms-backups/media local/cms
+```
+
+Các lệnh khôi phục trên đã được thử với Docker trên máy (xoá dữ liệu rồi khôi phục, xoá ảnh rồi lấy lại từ bản ngoài server).
 
 ## API cho website
 
