@@ -2,7 +2,7 @@ import { and, count, eq, gt, inArray } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 
 /** Activity-log actions that are each one paid AI run, counted against the daily cap. */
-export const AI_ACTIONS = ["post.ai_drafted", "post.ai_translated", "post.ai_seo_fixed", "post.ai_planned"];
+export const AI_ACTIONS = ["post.ai_drafted", "post.ai_translated", "post.ai_seo_fixed", "post.ai_planned", "post.ai_categorized", "category.ai_proposed"];
 /** Each run costs money: a generous cap per person per day stops runaway use. */
 export const AI_DAILY_LIMIT = Number(process.env.AI_DAILY_LIMIT) || 30;
 

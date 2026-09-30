@@ -3,6 +3,7 @@ import activity from "./dict/activity";
 import categories from "./dict/categories";
 import common from "./dict/common";
 import editor from "./dict/editor";
+import overview from "./dict/overview";
 import posts from "./dict/posts";
 import users from "./dict/users";
 
@@ -11,8 +12,8 @@ import users from "./dict/users";
  * Vietnamese original and an English version of the same shape (TypeScript checks it).
  */
 export const dictionaries = {
-  vi: { common: common.vi, posts: posts.vi, editor: editor.vi, users: users.vi, activity: activity.vi, categories: categories.vi },
-  en: { common: common.en, posts: posts.en, editor: editor.en, users: users.en, activity: activity.en, categories: categories.en },
+  vi: { common: common.vi, posts: posts.vi, editor: editor.vi, users: users.vi, activity: activity.vi, categories: categories.vi, overview: overview.vi },
+  en: { common: common.en, posts: posts.en, editor: editor.en, users: users.en, activity: activity.en, categories: categories.en, overview: overview.en },
 } satisfies Record<Lang, unknown>;
 
 export type Dict = (typeof dictionaries)["vi"];

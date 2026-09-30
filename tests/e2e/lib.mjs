@@ -100,3 +100,20 @@ export async function somePublishedPost() {
   if (!posts.length) throw new Error("No published Qub-X article: run npm run db:import-qubx -- --replace");
   return posts[0];
 }
+
+const BRIEF_FIELDS = ["audience", "goal", "offering", "voice", "avoid", "framework", "notes"];
+const unescape = (s) => s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#x27;", "'").replaceAll("&amp;", "&");
+
+/** A website's content brief and weekly target as saved now (read from its edit form), to put back after a test. */
+export async function readBrief(client, siteId) {
+  const html = (await client.req(`/admin/overview?site=${siteId}&edit=brief`)).text;
+  const brief = Object.fromEntries(BRIEF_FIELDS.map((f) => [f, unescape(html.match(new RegExp(`<textarea[^>]*name="${f}"[^>]*>([\\s\\S]*?)</textarea>`))?.[1] ?? "")]));
+  const target = html.match(/name="postsPerWeek"[^>]*value="(\d+)"|value="(\d+)"[^>]*name="postsPerWeek"/)?.slice(1).find(Boolean);
+  return { siteId, brief, postsPerWeek: target ? Number(target) : null };
+}
+
+/** Saves a website's content brief (as returned by readBrief, or a new one). */
+export async function writeBrief(client, value) {
+  await client.req(`/admin/overview?site=${value.siteId}`);
+  return client.call(`/admin/overview?site=${value.siteId}`, "saveBrief", [value]);
+}

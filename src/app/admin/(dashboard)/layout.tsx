@@ -16,6 +16,7 @@ export default async function DashboardLayout({ children }: LayoutProps<"/admin"
     {
       title: nav.content,
       items: [
+        { href: "/admin/overview", label: nav.overview, icon: "overview" },
         { href: "/admin", label: nav.posts, icon: "posts" },
         { href: user && can(user.role, "categories.manage") ? "/admin/categories" : null, label: nav.categories, icon: "categories" },
         { href: null, label: nav.media, icon: "media" },

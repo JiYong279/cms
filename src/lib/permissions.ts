@@ -29,6 +29,7 @@ export const PERMISSIONS = {
   "posts.deleteAny": { label: "Xoá bài của mọi người, xoá vĩnh viễn khỏi thùng rác", roles: ["admin", "editor"] },
   "posts.assign": { label: "Giao bài cho người phụ trách", roles: ["admin", "editor"] },
   "categories.manage": { label: "Thêm, sửa, xoá và sắp xếp danh mục", roles: ["admin", "editor"] },
+  "strategy.manage": { label: "Sửa định hướng nội dung và mục tiêu số bài mỗi tuần", roles: ["admin", "editor"] },
   "activity.view": { label: "Xem nhật ký hoạt động", roles: ["admin", "editor"] },
   "users.manage": { label: "Quản lý người dùng và phân quyền", roles: ["admin"] },
   "sites.manage": { label: "Cài đặt website (domain, đường dẫn blog, kết nối)", roles: ["admin"] },

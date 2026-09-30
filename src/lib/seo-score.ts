@@ -53,6 +53,8 @@ export type ScoreInput = {
   coverImageUrl: string | null;
   /** This language's description of the cover image. */
   coverImageAlt: string;
+  /** The overview of its topic: it needs more words than an article answering one question. */
+  pillar: boolean;
   /** The author filled in a public profile for this language. */
   authorHasProfile: boolean;
   /** The other language's version exists and neither version is out of date. */
@@ -87,7 +89,8 @@ export const SCORE_THRESHOLDS = { good: 80, ok: 50 } as const;
 /** What Google shows of the title and the description before cutting them (characters). */
 export const SEO_TITLE_LENGTH = { min: 30, max: 60 } as const;
 export const META_DESCRIPTION_LENGTH = { min: 110, max: 160 } as const;
-export const MIN_WORDS = 1000;
+/** Words an article needs: short and specific wins for one question, a pillar covers a whole topic. */
+export const MIN_WORDS = { pillar: 1200, cluster: 600 } as const;
 export const MIN_SECTIONS = 3;
 export const MAX_PARAGRAPH_WORDS = 150;
 export const MIN_INTERNAL_LINKS = 2;
@@ -127,6 +130,7 @@ export function scoreArticle(input: ScoreInput): ScoreResult {
     }
   }).length;
 
+  const minWords = MIN_WORDS[input.pillar ? "pillar" : "cluster"];
   const met = (ok: boolean) => (ok ? 1 : 0);
   const results: Record<CheckId, [number, Record<string, string | number>]> = {
     seoTitleLength: [met(seoTitle.length >= SEO_TITLE_LENGTH.min && seoTitle.length <= SEO_TITLE_LENGTH.max), { n: seoTitle.length }],
@@ -139,7 +143,7 @@ export function scoreArticle(input: ScoreInput): ScoreResult {
     keywordInHeading: [met(headings.some(has)), {}],
     slugLength: [met(!!input.slug && input.slug.length <= 75), { n: input.slug.length }],
     // Half the points on the way there: a 700-word article is better than a 200-word one.
-    wordCount: [bodyWords >= MIN_WORDS ? 1 : bodyWords >= MIN_WORDS * 0.6 ? 0.5 : 0, { n: bodyWords, min: MIN_WORDS }],
+    wordCount: [bodyWords >= minWords ? 1 : bodyWords >= minWords * 0.6 ? 0.5 : 0, { n: bodyWords, min: minWords }],
     sections: [sections >= MIN_SECTIONS ? 1 : sections > 0 ? 0.5 : 0, { n: sections, min: MIN_SECTIONS }],
     shortParagraphs: [met(paragraphs.length > 0 && longParagraphs === 0), { n: longParagraphs, max: MAX_PARAGRAPH_WORDS }],
     excerpt: [met(!!input.excerpt.trim()), {}],

@@ -16,7 +16,7 @@ check("twice a week is Tuesday and Thursday", planDates("2026-10-02", 2, "twoPer
 check("weekly keeps the start's day", planDates("2026-10-02", 3, "weekly").join() === "2026-10-02,2026-10-09,2026-10-16");
 check("month and year ends roll over", planDates("2026-12-31", 2, "daily").join() === "2026-12-31,2027-01-01");
 
-const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
+const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com", brief: {} };
 const prompt = contentPlanPrompt({
   site, locale: "vi", topic: "Hồ sơ bệnh án điện tử", count: 12,
   categories: ["Vận hành phòng khám", "Hồ sơ bệnh án điện tử (EMR)"],
@@ -26,6 +26,16 @@ const prompt = contentPlanPrompt({
 check("the prompt asks for a cluster of that many articles on the topic", prompt.includes("một cụm 12 bài") && prompt.includes('"Hồ sơ bệnh án điện tử"'));
 check("the prompt lists the categories and the articles not to repeat", prompt.includes("Vận hành phòng khám | Hồ sơ bệnh án điện tử (EMR)") && prompt.includes("- Hồ sơ bệnh án điện tử (EMR) cho phòng khám thẩm mỹ: bắt đầu từ đâu?"));
 check("the API prompt leaves out the paste-back format", !contentPlanPrompt({ site, locale: "vi", topic: "EMR", count: 3, categories: [], existing: [], answer: "tool" }).includes("```markdown"));
+const briefed = contentPlanPrompt({
+  site: { ...site, brief: { audience: "Chủ chuỗi nha khoa ở Hà Nội", avoid: "Không so sánh giá với đối thủ", voice: " " } },
+  locale: "vi", topic: "EMR", count: 3, categories: [], existing: [], answer: "paste",
+});
+check(
+  "the team's brief replaces the built-in description, blank parts left out",
+  briefed.includes("Readers: Chủ chuỗi nha khoa ở Hà Nội") && briefed.includes("Never write about or do: Không so sánh giá với đối thủ") && !briefed.includes("Voice:") && !briefed.includes("aesthetic clinics"),
+  briefed.slice(0, 400),
+);
+check("without a brief the built-in description stays", prompt.includes("aesthetic clinics"));
 check("an English plan gets an English prompt", contentPlanPrompt({ site, locale: "en", topic: "EMR", count: 3, categories: [], existing: [], answer: "paste" }).includes("in English"));
 
 const answer = [

@@ -8,7 +8,7 @@ const check = (label: string, ok: boolean, detail = "") => {
   console.log(`${ok ? "PASS" : "FAIL"}  ${label}${!ok && detail ? `  -> ${detail}` : ""}`);
 };
 
-const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
+const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com", brief: {} };
 const article = {
   title: "Cách chọn phần mềm quản lý spa cho chủ spa mới mở và những điều cần tránh khi mua phần mềm lần đầu",
   excerpt: "",

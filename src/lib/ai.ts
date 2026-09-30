@@ -1,8 +1,18 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { z } from "zod";
 import type { Locale } from "@/db/schema";
-import { siteBrief } from "./ai-brief";
+import { siteBrief, type BriefSite, type ContentBrief } from "./ai-brief";
+import { linkRules, seoWritingRules, type ArticleKind, type LinkTarget } from "./ai-seo";
 import { SOURCE_RULES_NO_BROWSING } from "./ai-sources";
+import {
+  MAX_CATEGORY_IDEAS,
+  MAX_PLACED_ARTICLES,
+  categoryPlanPrompt,
+  placementPrompt,
+  type CategoryIdea,
+  type ExistingCategory,
+  type PlaceArticle,
+} from "./category-ai";
 import { MAX_PLAN_ARTICLES, contentPlanPrompt, type PlanIdea } from "./content-plan";
 import { seoFixPrompt, type AiField, type FixArticle } from "./seo-fix";
 
@@ -82,6 +92,7 @@ const BODY_HTML_RULES = `HTML rules for the article body:
 export type SiteContext = {
   name: string;
   baseUrl: string;
+  brief: ContentBrief;
   glossary: { vi: string; en: string; note: string }[];
   /** Category names in the language being written, for drafts. */
   categories: string[];
@@ -143,22 +154,27 @@ export async function draftArticle(input: {
   keyPoints: string;
   focusKeyword: string;
   length: DraftLength;
+  kind: ArticleKind;
+  /** The website's live articles the draft may link to. */
+  links: LinkTarget[];
 }): Promise<ArticleFields> {
   if (!aiConfigured()) throw new AiError("not_configured");
   const system = `You write blog articles for a company website.
-${siteBrief(input.siteId, input.site)}
+${siteBrief({ id: input.siteId, ...input.site })}
 Write in ${LANGUAGE[input.locale]}, in a clear, warm and professional voice. Prefer concrete examples,
 short paragraphs and lists over generic statements. Do not invent statistics, prices, laws or
 regulations; when a point depends on a regulation, say readers should check the current text.
 ${glossaryText(input.site)}
 ${BODY_HTML_RULES}
+${seoWritingRules("en", input.kind)}
 ${SOURCE_RULES_NO_BROWSING}`;
   const prompt = [
     `Write an article of about ${DRAFT_LENGTHS[input.length]} words.`,
     `Topic: ${input.topic}`,
     input.keyPoints && `Points to cover:\n${input.keyPoints}`,
     input.focusKeyword && `Main search phrase: ${input.focusKeyword}`,
-    "End with a short conclusion, for example in a success callout.",
+    linkRules("en", input.links, input.kind),
+    "Just before the frequently asked questions, add a short conclusion in a success callout.",
   ]
     .filter(Boolean)
     .join("\n\n");
@@ -178,7 +194,7 @@ export async function translateArticle(input: {
 }): Promise<ArticleFields> {
   if (!aiConfigured()) throw new AiError("not_configured");
   const system = `You translate blog articles from ${LANGUAGE[input.from]} into ${LANGUAGE[input.to]} for a company website.
-${siteBrief(input.siteId, input.site)}
+${siteBrief({ id: input.siteId, ...input.site })}
 Translate faithfully and naturally, as a native ${LANGUAGE[input.to]} writer would put it; keep the meaning,
 tone and structure. Keep every HTML tag and attribute exactly as it is (links, images, videos, callouts,
 tables); translate only the text and image alt attributes. Adapt the search fields (meta title,
@@ -283,7 +299,7 @@ export async function proposeContentPlan(input: {
     },
   };
   const prompt = contentPlanPrompt({
-    site: { id: input.siteId, name: input.site.name, baseUrl: input.site.baseUrl },
+    site: { id: input.siteId, name: input.site.name, baseUrl: input.site.baseUrl, brief: input.site.brief },
     locale: input.locale,
     topic: input.topic,
     count: input.count,
@@ -324,3 +340,103 @@ const PlanSchema = z.object({
     .min(1)
     .max(MAX_PLAN_ARTICLES),
 });
+
+const CategoriesSchema = z.object({
+  categories: z
+    .array(
+      z.object({
+        vi: z.string().trim().min(1).max(80),
+        en: z.string().trim().min(1).max(80),
+        about_vi: z.string().trim().max(400),
+        about_en: z.string().trim().max(400),
+        from: z.array(z.string().trim().max(80)).max(20),
+        why: z.string().trim().max(500),
+      }),
+    )
+    .min(1)
+    .max(MAX_CATEGORY_IDEAS),
+});
+
+/** Asks the tool for an answer and checks it against `schema`. */
+async function callTool<T>(tool: Anthropic.Tool, prompt: string, schema: z.ZodType<T>): Promise<T> {
+  try {
+    const message = await new Anthropic().messages.create({
+      model: MODEL,
+      max_tokens: 8_000,
+      tools: [tool],
+      tool_choice: { type: "tool", name: tool.name },
+      messages: [{ role: "user", content: prompt }],
+    });
+    if (message.stop_reason === "max_tokens") throw new AiError("too_long");
+    const block = message.content.find((b) => b.type === "tool_use");
+    const parsed = schema.safeParse(block?.type === "tool_use" ? block.input : null);
+    if (!parsed.success) throw new AiError("bad_answer");
+    return parsed.data;
+  } catch (error) {
+    explain(error);
+  }
+}
+
+/** The categories the built-in AI proposes for a website; nothing changes until the team applies some. */
+export async function proposeCategories(input: {
+  site: BriefSite;
+  lang: Locale;
+  existing: ExistingCategory[];
+  titles: { title: string; category: string | null }[];
+}): Promise<CategoryIdea[]> {
+  if (!aiConfigured()) throw new AiError("not_configured");
+  const tool: Anthropic.Tool = {
+    name: "categories",
+    description: "Returns the proposed categories.",
+    input_schema: {
+      type: "object",
+      properties: {
+        categories: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: {
+              vi: { type: "string", description: "Vietnamese name." },
+              en: { type: "string", description: "English name." },
+              about_vi: { type: "string" },
+              about_en: { type: "string" },
+              from: { type: "array", items: { type: "string" }, description: "Existing categories this one continues; empty for a new topic." },
+              why: { type: "string" },
+            },
+            required: ["vi", "en", "about_vi", "about_en", "from", "why"],
+          },
+        },
+      },
+      required: ["categories"],
+    },
+  };
+  const answer = await callTool(tool, categoryPlanPrompt({ ...input, answer: "tool" }), CategoriesSchema);
+  return answer.categories.map((c) => ({ nameVi: c.vi, nameEn: c.en, descriptionVi: c.about_vi, descriptionEn: c.about_en, from: c.from, why: c.why }));
+}
+
+/** The existing category the built-in AI puts each article in (by the article's number); "-" for none. */
+export async function placeArticles(input: { site: BriefSite; lang: Locale; categories: string[]; articles: PlaceArticle[] }): Promise<Map<number, string>> {
+  if (!aiConfigured()) throw new AiError("not_configured");
+  const tool: Anthropic.Tool = {
+    name: "placements",
+    description: "Returns the category of each article.",
+    input_schema: {
+      type: "object",
+      properties: {
+        placements: {
+          type: "array",
+          items: {
+            type: "object",
+            properties: { n: { type: "integer" }, category: { type: "string", enum: [...input.categories, "-"] } },
+            required: ["n", "category"],
+          },
+        },
+      },
+      required: ["placements"],
+    },
+  };
+  const schema = z.object({ placements: z.array(z.object({ n: z.number().int(), category: z.string() })).max(MAX_PLACED_ARTICLES) });
+  const answer = await callTool(tool, placementPrompt({ ...input, answer: "tool" }), schema);
+  const numbers = new Set(input.articles.map((a) => a.n));
+  return new Map(answer.placements.filter((p) => numbers.has(p.n) && input.categories.includes(p.category)).map((p) => [p.n, p.category]));
+}

@@ -6,6 +6,7 @@ import { usePathname } from "next/navigation";
 import {
   Activity,
   BookA,
+  Compass,
   FileText,
   FolderTree,
   Image as ImageIcon,
@@ -22,6 +23,7 @@ import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/utils";
 
 const ICONS = {
+  overview: Compass,
   posts: FileText,
   users: Users,
   settings: Settings,

@@ -109,6 +109,10 @@ try {
   const prompt = await page.$eval(`${dialog} details textarea`, (t) => t.value);
   expect("the prompt asks for a cluster of 3 articles on the topic", prompt.includes("một cụm 3 bài") && prompt.includes(TOPIC));
   expect("the prompt lists the articles the website already has", prompt.includes(`- ${EXISTING}`));
+  // A prompt copied for another topic must not stay on screen, to be copied by hand by mistake.
+  await setValue(`${dialog} textarea[placeholder^="Ví dụ"]`, `${TOPIC} (đổi)`);
+  expect("changing the topic hides the prompt copied for the old one", !(await page.$(`${dialog} details textarea`)));
+  await setValue(`${dialog} textarea[placeholder^="Ví dụ"]`, TOPIC);
 
   await setValue(`${dialog} textarea[placeholder^="### 1"]`, ANSWER);
   await page.waitForSelector("[data-plan-review]");
@@ -116,6 +120,11 @@ try {
   expect("three ideas, on Monday, Wednesday and Friday", (await days()).join() === "2031-06-02,2031-06-04,2031-06-06", (await days()).join());
   expect("the overview is marked", await page.$eval('[data-idea="0"]', (e) => e.innerText.includes("Bài tổng quan")));
   expect("an idea repeating an existing article is flagged", await page.$eval('[data-idea="1"]', (e) => e.innerText.includes("Trùng tiêu đề")));
+  // The topic may already have its overview: the team can turn the mark off (and back on).
+  await page.click('[data-idea="0"] [data-pillar-toggle]');
+  const unmarked = await page.$eval('[data-idea="0"] [data-pillar-toggle]', (b) => b.getAttribute("aria-pressed"));
+  await page.click('[data-idea="0"] [data-pillar-toggle]');
+  expect("the overview mark can be turned off and on", unmarked === "false" && (await page.$eval('[data-idea="0"] [data-pillar-toggle]', (b) => b.getAttribute("aria-pressed"))) === "true");
   await shot(page, "plan-02-review", { fullPage: true });
 
   await page.click('[data-idea="1"] input[type="checkbox"]');

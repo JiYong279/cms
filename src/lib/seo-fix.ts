@@ -1,5 +1,5 @@
 import type { Locale } from "@/db/schema";
-import { siteBrief } from "./ai-brief";
+import { siteBrief, type BriefSite } from "./ai-brief";
 import { slugify } from "./posts";
 import { META_DESCRIPTION_LENGTH, SEO_TITLE_LENGTH, type CheckId } from "./seo-score";
 
@@ -98,7 +98,7 @@ const ANSWER_RULE: Record<Locale, string> = {
  * `answer`: "paste" for a chat the person copies it into, "tool" when the API answers through a tool.
  */
 export function seoFixPrompt(input: {
-  site: { id: string; name: string; baseUrl: string };
+  site: BriefSite;
   locale: Locale;
   fields: AiField[];
   article: FixArticle;
@@ -110,7 +110,7 @@ export function seoFixPrompt(input: {
   const lines = vi
     ? [
         `Bạn là biên tập viên SEO cho website ${input.site.name} (${input.site.baseUrl}).`,
-        `Bối cảnh: ${siteBrief(input.site.id, input.site)}`,
+        `Bối cảnh: ${siteBrief(input.site)}`,
         "",
         `Viết lại các phần SEO sau của bài bên dưới, bằng tiếng Việt, đúng giọng văn của bài:`,
         ...input.fields.map((f) => `- ${RULES.vi[f]}`),
@@ -121,7 +121,7 @@ export function seoFixPrompt(input: {
       ]
     : [
         `You are the SEO editor of ${input.site.name} (${input.site.baseUrl}).`,
-        `Context: ${siteBrief(input.site.id, input.site)}`,
+        `Context: ${siteBrief(input.site)}`,
         "",
         "Rewrite these SEO fields of the article below, in English, in the article's own voice:",
         ...input.fields.map((f) => `- ${RULES.en[f]}`),

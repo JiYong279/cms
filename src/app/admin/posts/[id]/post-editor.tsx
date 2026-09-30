@@ -35,6 +35,8 @@ import type { Locale, PostStatus, PostTranslation } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import type { ArticleFields, DraftLength } from "@/lib/ai";
+import type { BriefSite } from "@/lib/ai-brief";
+import type { LinkTarget } from "@/lib/ai-seo";
 import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste";
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
@@ -54,14 +56,14 @@ import { SeoFixDialog } from "./editor/seo-fix-dialog";
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
 
 type Props = {
-  post: { id: string; categoryId: string | null; featured: boolean; coverImageUrl: string | null };
+  post: { id: string; categoryId: string | null; featured: boolean; pillar: boolean; coverImageUrl: string | null };
   locale: Locale;
   locales: LocaleTab[];
   translation: PostTranslation | null;
   /** Locale this translation was made from, when that source has changed since. */
   staleSource: Locale | null;
   /** `viewOrigin` is where to open the article to look at it (see viewOrigin in lib/posts). */
-  site: { id: string; name: string; baseUrl: string; viewOrigin: string; blogPath: string };
+  site: BriefSite & { viewOrigin: string; blogPath: string };
   categories: { id: string; name: string }[];
   /** The editorial calendar's plan for the article (saved on its own, see PlanningFields). */
   planning: { plannedFor: string | null; assigneeId: string | null; assignees: { id: string; name: string }[]; canAssign: boolean };
@@ -75,6 +77,8 @@ type Props = {
   history: { at: Date; who: string; summary: string }[];
   /** ANTHROPIC_API_KEY is set, so the AI assistant can run. */
   aiEnabled: boolean;
+  /** The website's live articles in this language, for AI drafts to link to. */
+  linkTargets: LinkTarget[];
   /** Opened from the other language's "translate into this one": start with the AI dialog translating. */
   openAi: "translate" | null;
   aiEngine: "own" | "builtin" | null;
@@ -144,6 +148,7 @@ export function PostEditor({
   trashed,
   history,
   aiEnabled,
+  linkTargets,
   authorHasProfile,
   timeZone,
   openAi,
@@ -171,6 +176,7 @@ export function PostEditor({
   const [noindex, setNoindex] = useState(translation?.noindex ?? false);
   const [categoryId, setCategoryId] = useState(post.categoryId ?? "");
   const [featured, setFeatured] = useState(post.featured);
+  const [pillar, setPillar] = useState(post.pillar);
   const [coverImageUrl, setCoverImageUrl] = useState(post.coverImageUrl ?? "");
   const [coverImageAlt, setCoverImageAlt] = useState(translation?.coverImageAlt ?? "");
 
@@ -236,6 +242,7 @@ export function PostEditor({
         publishedAt: publishedAt ? new Date(publishedAt).toISOString() : null,
         categoryId: categoryId || null,
         featured,
+        pillar,
         coverImageUrl: coverImageUrl.trim(),
         coverImageAlt,
         translatedFrom,
@@ -290,6 +297,7 @@ export function PostEditor({
     publishedAt,
     categoryId,
     featured,
+    pillar,
     coverImageUrl,
     coverImageAlt,
     translatedFrom,
@@ -405,6 +413,7 @@ export function PostEditor({
     categoryId: categoryId || null,
     coverImageUrl: coverImageUrl.trim() || null,
     coverImageAlt,
+    pillar,
     authorHasProfile,
     translationInSync: !!otherVersion?.status && !otherVersion.stale && !locales.find((tab) => tab.locale === locale)?.stale,
     siteHost: new URL(site.baseUrl).host,
@@ -837,6 +846,12 @@ export function PostEditor({
                 </select>
               </Field>
               <Toggle
+                checked={pillar}
+                onChange={edit(setPillar)}
+                label={t.editor.panel.pillar}
+                hint={t.editor.panel.pillarHint}
+              />
+              <Toggle
                 checked={featured}
                 onChange={edit(setFeatured)}
                 label={t.editor.panel.featured}
@@ -941,6 +956,8 @@ export function PostEditor({
           categories={categories}
           source={otherVersion ? { locale: otherVersion.locale, exists: !!otherVersion.status } : null}
           enabled={aiEnabled}
+          pillar={pillar}
+          linkTargets={linkTargets}
           hasContent={!!title.trim() || countWords(content.html) > 0}
           dirty={dirty}
           initialKeyword={focusKeyword}
@@ -1231,6 +1248,8 @@ function AiDialog({
   categories,
   source,
   enabled,
+  pillar,
+  linkTargets,
   hasContent,
   dirty,
   initialKeyword,
@@ -1244,11 +1263,14 @@ function AiDialog({
 }: {
   postId: string;
   locale: Locale;
-  site: { id: string; name: string; baseUrl: string };
+  site: BriefSite;
   categories: { id: string; name: string }[];
   /** The other language: where a translation comes from. */
   source: { locale: Locale; exists: boolean } | null;
   enabled: boolean;
+  /** The article is its topic's pillar: drafted long and covering the whole topic. */
+  pillar: boolean;
+  linkTargets: LinkTarget[];
   hasContent: boolean;
   /** This version has changes not saved yet (translating it out saves them first). */
   dirty: boolean;
@@ -1277,7 +1299,7 @@ function AiDialog({
   const [topic, setTopic] = useState(initialTopic);
   const [keyPoints, setKeyPoints] = useState(initialKeyPoints);
   const [keyword, setKeyword] = useState(initialKeyword);
-  const [length, setLength] = useState<DraftLength>("medium");
+  const [length, setLength] = useState<DraftLength>(pillar ? "long" : "medium");
   const [error, setError] = useState<string | null>(null);
   const [running, startRunning] = useTransition();
   const [seconds, setSeconds] = useState(0);
@@ -1322,7 +1344,7 @@ function AiDialog({
     startRunning(async () => {
       const result = from
         ? await aiTranslate({ postId, from, to: locale })
-        : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length });
+        : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length, pillar });
       if (!result.ok) setError(result.error);
       else onDone(result.article, from);
     });
@@ -1346,7 +1368,17 @@ function AiDialog({
         text = translatePrompt({ site, from, to: locale, source: result.source });
         setSourceHtml(result.source.html);
       } else {
-        text = draftPrompt({ site, locale, topic, keyPoints, focusKeyword: keyword, words: DRAFT_WORDS[length], categories });
+        text = draftPrompt({
+          site,
+          locale,
+          topic,
+          keyPoints,
+          focusKeyword: keyword,
+          words: DRAFT_WORDS[length],
+          categories,
+          kind: pillar ? "pillar" : "cluster",
+          links: linkTargets,
+        });
       }
       setPrompt(text);
       try {
