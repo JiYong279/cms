@@ -1,8 +1,8 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, CheckCircle2, CircleAlert, Loader2, Pencil } from "lucide-react";
+import { AlertTriangle, ArrowRight, CheckCircle2, CircleAlert, Loader2, Pencil } from "lucide-react";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import { BRIEF_FIELDS, MAX_BRIEF_FIELD_CHARS, MAX_POSTS_PER_WEEK, hasBrief, type ContentBrief } from "@/lib/ai-brief";
@@ -21,16 +21,57 @@ type Props = {
 const inputClass =
   "w-full rounded-lg border border-zinc-300 bg-white px-3 py-2 text-sm outline-none transition focus:border-brand-bright focus:ring-2 focus:ring-brand-bright/20";
 
+/** Sent by the next steps' buttons: open the brief's form on one of its fields. */
+const OPEN_BRIEF_EVENT = "overview:open-brief";
+type BriefInput = (typeof BRIEF_FIELDS)[number] | "postsPerWeek";
+
+/**
+ * "Write the brief" / "Set a target" in the next steps. A button rather than a link: the page
+ * address may already be the one a link would go to, and then nothing would open.
+ */
+export function OpenBriefButton({ field, children }: { field: BriefInput; children: React.ReactNode }) {
+  return (
+    <button
+      type="button"
+      data-open-brief
+      onClick={() => window.dispatchEvent(new CustomEvent<BriefInput>(OPEN_BRIEF_EVENT, { detail: field }))}
+      className="inline-flex shrink-0 items-center gap-1 whitespace-nowrap text-xs font-semibold text-brand hover:text-brand-hover"
+    >
+      {children} <ArrowRight className="size-3" />
+    </button>
+  );
+}
+
 /** What the blog is for: read by everyone, edited by editors and admins. */
 export function BriefCard({ siteId, brief, postsPerWeek, canEdit, startEditing }: Props) {
   const { t } = useI18n();
   const b = t.overview.brief;
   const router = useRouter();
   const [editing, setEditing] = useState(canEdit && startEditing);
+  // The field a next-step button asked for, focused once the form shows.
+  const [focus, setFocus] = useState<BriefInput | null>(null);
   const [draft, setDraft] = useState(() => Object.fromEntries(BRIEF_FIELDS.map((f) => [f, brief[f] ?? ""])) as Record<(typeof BRIEF_FIELDS)[number], string>);
   const [target, setTarget] = useState(postsPerWeek ? String(postsPerWeek) : "");
   const [message, setMessage] = useState<{ ok: boolean; text: string } | null>(null);
   const [saving, startSaving] = useTransition();
+
+  useEffect(() => {
+    if (!canEdit) return;
+    const open = (e: Event) => {
+      setEditing(true);
+      setMessage(null);
+      setFocus((e as CustomEvent<BriefInput>).detail);
+    };
+    window.addEventListener(OPEN_BRIEF_EVENT, open);
+    return () => window.removeEventListener(OPEN_BRIEF_EVENT, open);
+  }, [canEdit]);
+
+  useEffect(() => {
+    if (!editing || !focus) return;
+    const el = document.querySelector<HTMLElement>(`[data-brief] [name="${focus}"]`);
+    el?.scrollIntoView({ behavior: "smooth", block: "center" });
+    el?.focus({ preventScroll: true });
+  }, [editing, focus]);
 
   function save() {
     setMessage(null);
@@ -38,6 +79,7 @@ export function BriefCard({ siteId, brief, postsPerWeek, canEdit, startEditing }
       const result = await saveBrief({ siteId, brief: draft, postsPerWeek: target ? Number(target) : null });
       if (!result.ok) return setMessage({ ok: false, text: result.error });
       setEditing(false);
+      setFocus(null);
       setMessage({ ok: true, text: b.saved });
       router.refresh();
     });

@@ -50,16 +50,23 @@ try {
   expect("and asking for a weekly target comes next", !!(await page.$('[data-step="target"]')));
 
   // "Write the brief" in the next steps opens the brief's form, as a person would reach it.
-  await page.click('[data-step="brief"] a');
-  const opened = await page.waitForSelector('textarea[name="audience"]', { visible: true, timeout: 5000 }).catch(() => null);
-  expect("'Write the brief' opens the form", !!opened);
-  if (!opened) await page.click("[data-brief-edit]");
-  await page.waitForSelector('textarea[name="audience"]', { visible: true });
+  const openFrom = async (step, field) => {
+    await page.click(`[data-step="${step}"] [data-open-brief]`).catch(() => {});
+    const opened = await page.waitForSelector(field, { visible: true, timeout: 5000 }).catch(() => null);
+    return !!opened && (await page.$eval(field, (el) => el === document.activeElement));
+  };
+  expect("'Write the brief' opens the form on its first field", await openFrom("brief", 'textarea[name="audience"]'));
+  if (!(await page.$('textarea[name="audience"]'))) await page.click("[data-brief-edit]");
   await page.type('textarea[name="audience"]', "Chủ phòng khám thử trình duyệt");
-  await page.type('input[name="postsPerWeek"]', "4");
   await page.click("[data-brief-save]");
   await page.waitForFunction(() => document.querySelector("[data-brief] [role=status]")?.textContent?.includes("Đã lưu định hướng"), { timeout: 10000 });
   await page.waitForFunction(() => !document.querySelector('[data-step="brief"]'), { timeout: 10000 });
+  // The form is closed again: "Set a target" must still open it (it once pointed at the page already shown).
+  expect("'Set a target' opens the form again, on the target", await openFrom("target", 'input[name="postsPerWeek"]'));
+  if (!(await page.$('input[name="postsPerWeek"]'))) await page.click("[data-brief-edit]");
+  await page.type('input[name="postsPerWeek"]', "4");
+  await page.click("[data-brief-save]");
+  await page.waitForFunction(() => !document.querySelector('[data-step="target"]'), { timeout: 10000 });
   const shown = await page.$eval("[data-brief]", (el) => el.textContent ?? "");
   expect("the saved brief and target show on the page", shown.includes("Chủ phòng khám thử trình duyệt") && shown.includes("4 bài/tuần"), shown.slice(0, 200));
   expect("the next steps no longer ask for them", !(await page.$('[data-step="brief"]')) && !(await page.$('[data-step="target"]')));

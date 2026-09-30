@@ -5,6 +5,7 @@ import { getT } from "@/i18n/server";
 import { MIN_CLUSTER_ARTICLES, type NextStep } from "@/lib/content-overview";
 import { addDays } from "@/lib/days";
 import { PlanWithAiButton, type PlanSite } from "../calendar/plan-dialog";
+import { OpenBriefButton } from "./brief-card";
 import { formatDay, formatWeek } from "./format";
 
 /** How many steps are shown; the sections below hold the rest. */
@@ -39,16 +40,15 @@ export async function NextSteps({ steps, siteId, topicNames, canEditBrief, categ
   const t = await getT();
   const n = t.overview.next;
   const site = encodeURIComponent(siteId);
-  const briefHref = canEditBrief ? `/admin/overview?site=${site}&edit=brief#brief` : "#brief";
 
   function describe(step: NextStep): { text: string; action: React.ReactNode } {
     const planButton = (topic: string) =>
       plan && <PlanWithAiButton sites={[plan.site]} defaultSiteId={plan.site.id} startDay={plan.startDay} aiEnabled={plan.aiEnabled} initialTopic={topic} variant="inline" label={n.plan} />;
     switch (step.kind) {
       case "brief":
-        return { text: n.brief, action: <Link href={briefHref} className={linkClass}>{n.writeBrief} <ArrowRight className="size-3" /></Link> };
+        return { text: n.brief, action: canEditBrief && <OpenBriefButton field="audience">{n.writeBrief}</OpenBriefButton> };
       case "target":
-        return { text: n.target, action: <Link href={briefHref} className={linkClass}>{n.setTarget} <ArrowRight className="size-3" /></Link> };
+        return { text: n.target, action: canEditBrief && <OpenBriefButton field="postsPerWeek">{n.setTarget}</OpenBriefButton> };
       case "categories":
         return { text: n.categories, action: categoryTools?.suggest };
       case "uncategorized":
