@@ -8,6 +8,7 @@ import { z } from "zod";
 import { getDb, schema } from "@/db";
 import { createSession, destroySession } from "@/lib/auth";
 import { isWeakPassword } from "@/lib/passwords";
+import { HOME_PATH } from "@/lib/paths";
 import { logActivity } from "@/lib/activity";
 import { fmt } from "@/i18n";
 import { getT } from "@/i18n/server";
@@ -73,7 +74,7 @@ export async function login(_prev: LoginState, formData: FormData): Promise<Logi
 
   await createSession(user.id);
   await logActivity({ userId: user.id, action: "auth.login", entityType: "auth", entityId: user.id, meta: { ip } });
-  redirect(isWeakPassword(parsed.data.password) ? "/admin/account?weak=1" : "/admin");
+  redirect(isWeakPassword(parsed.data.password) ? "/admin/account?weak=1" : HOME_PATH);
 }
 
 export async function logout() {

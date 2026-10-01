@@ -3,7 +3,7 @@
 import { useEffect, useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, FolderTree, Info, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
-import { AiEnginePanel, type AiEngine } from "@/components/ai-engine-panel";
+import { AiEnginePanel, useAiEngine } from "@/components/ai-engine-panel";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import type { BriefSite } from "@/lib/ai-brief";
@@ -62,7 +62,7 @@ function SuggestDialog({ site, existing, titles, aiEnabled, onClose }: Props & {
   const s = c.ai;
   const router = useRouter();
   const titleId = useId();
-  const [engine, setEngine] = useState<AiEngine>(aiEnabled ? "builtin" : "own");
+  const [engine, setEngine] = useAiEngine(aiEnabled, null);
   const [pasted, setPasted] = useState("");
   const [rows, setRows] = useState<Row[] | null>(null);
   const [unused, setUnused] = useState<ExistingCategory[]>([]);

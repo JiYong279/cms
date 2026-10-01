@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useId, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { EditorContent, useEditor, type Editor, type JSONContent } from "@tiptap/react";
 import { useI18n } from "@/i18n/client";
@@ -110,6 +110,9 @@ export function RichTextEditor({ content, onChange, siteId, locale, onError, edi
       }),
   };
 
+  // True while the loaded document settles (see onCreate): changes made then are not the person's.
+  const settling = useRef(true);
+
   const editor = useEditor({
     editable,
     extensions: buildExtensions({
@@ -142,9 +145,19 @@ export function RichTextEditor({ content, onChange, siteId, locale, onError, edi
     // Rendering on the server would not match the client and cause a hydration error.
     immediatelyRender: false,
     editorProps: { attributes: { class: "tiptap min-h-[60vh] outline-none" } },
+    // Plugins adjust a loaded document on its first transaction (e.g. a paragraph after a closing
+    // heading, as a planned draft's outline ends). Left for later, that happens on the first focus,
+    // such as closing the AI dialog, and reads as an unsaved edit that blocks leaving the page.
+    onCreate: ({ editor }) => {
+      editor.view.dispatch(editor.state.tr);
+      settling.current = false;
+    },
     // ProseMirror builds attrs as prototype-less objects, which Server Actions silently drop;
     // a JSON round trip turns them into plain objects so levels, links and colours are saved.
-    onUpdate: ({ editor }) => onChange({ json: JSON.parse(JSON.stringify(editor.getJSON())), html: editor.getHTML() }),
+    onUpdate: ({ editor }) => {
+      if (settling.current) return;
+      onChange({ json: JSON.parse(JSON.stringify(editor.getJSON())), html: editor.getHTML() });
+    },
   });
 
   // Parsed by the editor like a paste, so anything it does not support is dropped; onUpdate reports it.

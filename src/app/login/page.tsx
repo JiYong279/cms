@@ -4,6 +4,7 @@ import { Brand } from "@/components/brand";
 import { LanguageSwitch } from "@/components/language-switch";
 import { getT } from "@/i18n/server";
 import { getCurrentUser } from "@/lib/auth";
+import { HOME_PATH } from "@/lib/paths";
 import { LoginForm } from "./login-form";
 
 export async function generateMetadata() {
@@ -12,7 +13,7 @@ export async function generateMetadata() {
 }
 
 export default async function LoginPage() {
-  if (await getCurrentUser()) redirect("/admin");
+  if (await getCurrentUser()) redirect(HOME_PATH);
   const t = (await getT()).common.login;
   const highlights = [
     { icon: Languages, text: t.highlightBilingual },

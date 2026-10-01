@@ -3,7 +3,7 @@
 import { useEffect, useId, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { CircleAlert, FolderInput, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
-import { AiEnginePanel, type AiEngine } from "@/components/ai-engine-panel";
+import { AiEnginePanel, useAiEngine } from "@/components/ai-engine-panel";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import type { BriefSite } from "@/lib/ai-brief";
@@ -58,7 +58,7 @@ function PlaceDialog({ site, categories, articles: all, aiEnabled, onClose }: Pr
   const articles = all.slice(0, MAX_PLACED_ARTICLES);
   const names = categories.map((c) => (lang === "en" ? c.nameEn || c.nameVi : c.nameVi || c.nameEn));
   const numbered = articles.map((a, i) => ({ n: i + 1, title: a.title || t.overview.todo.untitled, excerpt: a.excerpt }));
-  const [engine, setEngine] = useState<AiEngine>(aiEnabled ? "builtin" : "own");
+  const [engine, setEngine] = useAiEngine(aiEnabled, null);
   const [pasted, setPasted] = useState("");
   // Chosen category per article id ("" leaves it as is); null until the AI answered.
   const [choice, setChoice] = useState<Record<string, string> | null>(null);

@@ -33,11 +33,13 @@ import { ConfirmPopover } from "@/components/confirm-popover";
 import { useReturnTo } from "@/components/return-to";
 import type { Locale, PostStatus, PostTranslation } from "@/db/schema";
 import { fmt } from "@/i18n";
+import { useAiEngine } from "@/components/ai-engine-panel";
 import { useI18n } from "@/i18n/client";
 import type { ArticleFields, DraftLength } from "@/lib/ai";
 import type { BriefSite } from "@/lib/ai-brief";
 import type { LinkTarget } from "@/lib/ai-seo";
 import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste";
+import { isOutlineOnly } from "@/lib/content-plan";
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
 import { FIX_FOR, fieldsFor, type FixField } from "@/lib/seo-fix";
@@ -80,7 +82,8 @@ type Props = {
   /** The website's live articles in this language, for AI drafts to link to. */
   linkTargets: LinkTarget[];
   /** Opened from the other language's "translate into this one": start with the AI dialog translating. */
-  openAi: "translate" | null;
+  /** ?ai= in the address: open the AI dialog on writing a draft or translating. */
+  openAi: "translate" | "draft" | null;
   aiEngine: "own" | "builtin" | null;
   /** The article's author has a public profile in this language (see the Account page). */
   authorHasProfile: boolean;
@@ -89,8 +92,6 @@ type Props = {
 };
 
 const PLACEHOLDER_SLUG = /^bai-viet-[0-9a-f]{8}$/;
-/** Below this many words the body is just an outline (a planned draft), not an article yet. */
-const OUTLINE_ONLY_WORDS = 150;
 
 function toLocalInput(date: Date | null) {
   if (!date) return "";
@@ -185,7 +186,7 @@ export function PostEditor({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; href?: string } | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(openAi === "translate");
+  const [aiOpen, setAiOpen] = useState(openAi !== null);
   // Where to go once the save in progress succeeds (translating this version into the other language).
   const afterSave = useRef<string | null>(null);
   // Back to the list, calendar or log (with its filters) the article was opened from.
@@ -962,8 +963,8 @@ export function PostEditor({
           dirty={dirty}
           initialKeyword={focusKeyword}
           // A planned draft holds only its outline: start the draft from its title and headings.
-          initialTopic={countWords(content.html) < OUTLINE_ONLY_WORDS ? title : ""}
-          initialKeyPoints={countWords(content.html) < OUTLINE_ONLY_WORDS ? outline.filter(Boolean).join("\n") : ""}
+          initialTopic={isOutlineOnly(content.html) ? title : ""}
+          initialKeyPoints={isOutlineOnly(content.html) ? outline.filter(Boolean).join("\n") : ""}
           initialMode={openAi}
           initialEngine={aiEngine}
           onTranslateOut={translateOut}
@@ -1277,7 +1278,7 @@ function AiDialog({
   initialKeyword: string;
   initialTopic: string;
   initialKeyPoints: string;
-  initialMode: "translate" | null;
+  initialMode: "translate" | "draft" | null;
   initialEngine: "own" | "builtin" | null;
   /** Translate this version into `target`: done in that language's editor, which this opens. */
   onTranslateOut: (target: Locale, engine: "own" | "builtin") => void;
@@ -1291,7 +1292,7 @@ function AiDialog({
   // Into this version needs the other one saved; out of it needs something here to translate.
   const canTranslate = !!source?.exists;
   const canTranslateOut = !!source && hasContent;
-  const [engine, setEngine] = useState<"own" | "builtin">(initialEngine ?? (enabled ? "builtin" : "own"));
+  const [engine, setEngine] = useAiEngine(enabled, initialEngine);
   // An empty version with the other language written is most likely waiting to be translated.
   const [mode, setMode] = useState<"draft" | "translate">(initialMode ?? (canTranslate && !hasContent ? "translate" : "draft"));
   // A version with content is most likely the one to translate; an empty one waits for the other.

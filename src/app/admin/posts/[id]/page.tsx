@@ -121,7 +121,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
       canDelete={canDeletePost(user, post, post.translations.map((tr) => tr.status))}
       aiEnabled={aiConfigured()}
       linkTargets={await getLinkTargets({ siteId: post.siteId, locale, excludePostId: post.id, categoryId: post.categoryId })}
-      openAi={ai === "translate" ? "translate" : null}
+      openAi={ai === "translate" || ai === "draft" ? ai : null}
       aiEngine={engine === "own" || engine === "builtin" ? engine : null}
       authorHasProfile={authorHasProfile}
       timeZone={await getTimeZone()}

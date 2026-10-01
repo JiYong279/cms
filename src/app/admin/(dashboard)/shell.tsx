@@ -20,6 +20,7 @@ import {
 import { Brand } from "@/components/brand";
 import { LanguageSwitch } from "@/components/language-switch";
 import { useI18n } from "@/i18n/client";
+import { HOME_PATH } from "@/lib/paths";
 import { cn } from "@/lib/utils";
 
 const ICONS = {
@@ -64,7 +65,7 @@ export function Shell({ groups, user, logout, children }: Props) {
 
   const sidebar = (
     <div className="flex h-full flex-col bg-ink text-white">
-      <Link href="/admin" className="flex h-16 shrink-0 items-center px-5">
+      <Link href={HOME_PATH} className="flex h-16 shrink-0 items-center px-5">
         <Brand onDark />
       </Link>
 

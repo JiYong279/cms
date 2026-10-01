@@ -2,7 +2,7 @@
 // following it, and planning a topic straight from the topic table.  npm run test:overview
 import fs from "node:fs";
 import puppeteer from "puppeteer-core";
-import { ADMIN, CMS, Client, readBrief, writeBrief } from "../e2e/lib.mjs";
+import { ADMIN, CMS, Client, destroyPosts, readBrief, writeBrief } from "../e2e/lib.mjs";
 
 const OUT = new URL("./screenshots/", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
 fs.mkdirSync(OUT, { recursive: true });
@@ -29,6 +29,7 @@ const FIELDS = ["audience", "goal", "offering", "voice", "avoid", "notes"];
 const admin = new Client();
 await admin.login(ADMIN.email, ADMIN.password);
 const before = await readBrief(admin, "qubx");
+const created = [];
 
 const browser = await puppeteer.launch({ executablePath, headless: true });
 const page = await browser.newPage();
@@ -42,6 +43,34 @@ try {
   await page.type('input[name="email"]', ADMIN.email);
   await page.type('input[name="password"]', ADMIN.password);
   await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click('button[type="submit"]')]);
+  // A weak password (the local demo admin) is asked to change first; otherwise it is the overview.
+  expect("signing in lands on the content overview", /\/admin\/(overview|account\?weak=1)$/.test(page.url()), page.url());
+
+  // "Articles to write": an article planned for today, one click from the AI.
+  const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
+  await admin.req("/admin/calendar");
+  const planned = await admin.call("/admin/calendar", "createPlannedPosts", [
+    { siteId: "qubx", locale: "vi", ideas: [{ title: "Bài lên lịch hôm nay e2e", focusKeyword: "", categoryId: null, plannedFor: today, why: "Thử.", outline: ["Mục một", "Mục hai"] }] },
+  ]);
+  if (planned.ok) created.push(...planned.ids);
+  await page.goto(URL_, { waitUntil: "networkidle0" });
+  const toWriteRow = planned.ok ? await page.$(`[data-to-write] [data-article="${planned.ids[0]}"]`) : null;
+  expect("an article planned for today is first in 'Articles to write'", !!toWriteRow && (await toWriteRow.evaluate((r) => r.textContent ?? "")).includes("Hôm nay"));
+  if (toWriteRow) {
+    // A client-side navigation: wait for the dialog rather than a page load.
+    await toWriteRow.$eval("[data-write-ai]", (a) => a.click());
+    await page.waitForSelector('[role="dialog"]', { visible: true });
+    const dialog = await page.$eval('[role="dialog"]', (d) => ({
+      draft: !!d.querySelector('input[name="aiMode"]:checked')?.closest("label")?.innerText.includes("Viết bản nháp"),
+      topic: [...d.querySelectorAll("input, textarea")].some((i) => i.value === "Bài lên lịch hôm nay e2e"),
+    }));
+    expect("'Write with AI' opens the article with the AI ready to draft it from its title", dialog.draft && dialog.topic, JSON.stringify(dialog));
+    await page.keyboard.press("Escape");
+    // Closing the dialog changes nothing: the article must not claim unsaved changes (and block leaving).
+    await new Promise((r) => setTimeout(r, 800));
+    const header = await page.$eval("header", (h) => h.innerText);
+    expect("closing the AI dialog leaves the article saved", !header.includes("Chưa lưu"), header.replace(/\s+/g, " ").slice(0, 120));
+  }
 
   // Start from an empty brief, the way a new website does.
   await writeBrief(admin, { siteId: "qubx", brief: Object.fromEntries(FIELDS.map((f) => [f, ""])), postsPerWeek: null });
@@ -95,6 +124,7 @@ try {
   expect("no errors in the browser console", errors.length === 0, errors.slice(0, 5).join(" | "));
   await browser.close();
   await writeBrief(admin, before);
+  await destroyPosts(admin, created);
   console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
   process.exit(failures ? 1 : 0);
 }
