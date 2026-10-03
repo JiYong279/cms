@@ -9,6 +9,7 @@ import { scoreVersion } from "@/lib/article-score";
 import { requireUser } from "@/lib/auth";
 import { categoryName } from "@/lib/categories";
 import {
+  getArticlesToWrite,
   getLanguageGaps,
   getMonthlyOutput,
   getNextSteps,
@@ -20,6 +21,7 @@ import {
   type OverviewPost,
   type TodoVersion,
 } from "@/lib/content-overview";
+import { isOutlineOnly } from "@/lib/content-plan";
 import { addDays, getDayKey } from "@/lib/days";
 import { countImageSuggestions } from "@/lib/image-suggestions";
 import { can } from "@/lib/permissions";
@@ -32,6 +34,7 @@ import { SuggestCategoriesButton } from "../categories/suggest-dialog";
 import { BriefCard } from "./brief-card";
 import { CoverageSection } from "./coverage-section";
 import { NextSteps } from "./next-steps";
+import { ToWrite, type ArticleToWrite } from "./to-write";
 import { TodoSection } from "./todo-section";
 import { WeeksSection } from "./weeks-section";
 
@@ -114,7 +117,21 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
     }),
   );
   const todo = getTodo(todoVersions, today, timeZone);
+  // The day's work, in the website's language first; writers see their own articles.
   const mineIds = new Set(mine.map((p) => p.id));
+  const toWrite: ArticleToWrite[] = getArticlesToWrite(overviewPosts.filter((o) => mineIds.has(o.id)), today).map((o) => {
+    const p = posts.find((x) => x.id === o.id) as (typeof posts)[number];
+    const tr = p.translations.find((x) => x.locale === site.defaultLocale) ?? p.translations[0];
+    return {
+      postId: p.id,
+      locale: tr?.locale ?? site.defaultLocale,
+      title: tr?.title ?? "",
+      category: topicNames.get(p.categoryId ?? "") ?? null,
+      plannedFor: o.plannedFor,
+      inReview: p.translations.some((x) => x.status === "in_review"),
+      outlineOnly: isOutlineOnly(tr?.contentHtml ?? ""),
+    };
+  });
   const shownGaps = gaps
     .filter((g) => mineIds.has(g.postId))
     .map((g) => ({ ...g, title: posts.find((p) => p.id === g.postId)?.translations.find((tr) => tr.locale === g.has)?.title ?? "" }));
@@ -187,6 +204,7 @@ export default async function OverviewPage({ searchParams }: PageProps<"/admin/o
       </header>
 
       <div className="mt-6 flex flex-col gap-6">
+        <ToWrite articles={toWrite} siteId={site.id} today={today} plan={plan} />
         <NextSteps
           steps={steps}
           siteId={site.id}

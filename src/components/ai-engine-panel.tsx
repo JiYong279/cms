@@ -1,11 +1,53 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { Check, Copy, ExternalLink } from "lucide-react";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/utils";
 
 export type AiEngine = "own" | "builtin";
+
+/** This browser's last choice between "Your Claude" and the built-in AI, used by every AI dialog. */
+const ENGINE_KEY = "cms.aiEngine";
+
+function readEngine(): AiEngine | null {
+  try {
+    const value = window.localStorage.getItem(ENGINE_KEY);
+    return value === "own" || value === "builtin" ? value : null;
+  } catch (error) {
+    // Storage blocked (e.g. a private window): the dialog simply asks again next time.
+    console.warn("[ai] could not read the remembered AI choice", error);
+    return null;
+  }
+}
+
+function subscribe(onChange: () => void) {
+  window.addEventListener("storage", onChange);
+  return () => window.removeEventListener("storage", onChange);
+}
+
+/**
+ * The AI to use, remembered across dialogs and visits: the person's last choice, else `preset` (e.g.
+ * ?engine= in the address), else the built-in AI when it is configured. The server renders without
+ * the remembered choice; the browser switches to it right away.
+ */
+export function useAiEngine(aiEnabled: boolean, preset: AiEngine | null): [AiEngine, (engine: AiEngine) => void] {
+  const remembered = useSyncExternalStore(subscribe, readEngine, () => null);
+  const [chosen, setChosen] = useState<AiEngine | null>(null);
+  // A remembered built-in AI that is no longer configured falls back to "Your Claude".
+  const fallback = aiEnabled ? "builtin" : "own";
+  const stored = remembered === "builtin" && !aiEnabled ? null : remembered;
+  const engine = chosen ?? preset ?? stored ?? fallback;
+  function choose(next: AiEngine) {
+    setChosen(next);
+    try {
+      window.localStorage.setItem(ENGINE_KEY, next);
+    } catch (error) {
+      console.warn("[ai] could not remember the AI choice", error);
+    }
+  }
+  return [engine, choose];
+}
 
 type Props = {
   engine: AiEngine;

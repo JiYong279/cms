@@ -83,7 +83,7 @@ export function check(label, ok, detail = "") {
 export const failed = () => failures;
 export const has = (res, text) => res.text.includes(text);
 export const message = (res) => (res.text.match(/role="(?:alert|status)"[^>]*>(?:<svg[\s\S]*?<\/svg>)?([^<]*)/) ?? [])[1];
-export const signedIn = (res) => res.status === 303 && /\/admin(\/account\?weak=1)?$/.test(res.location ?? "");
+export const signedIn = (res) => res.status === 303 && /\/admin\/(overview|account\?weak=1)$/.test(res.location ?? "");
 
 /** Deletes articles for good: to the trash first, then out of it. */
 export async function destroyPosts(client, ids) {

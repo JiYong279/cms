@@ -52,6 +52,11 @@ try {
   await shot(page, "00-choose-site");
   await page.click('[role="dialog"] input[value="qubx"]');
   await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click('button::-p-text(Tạo bài cho Qub-X)')]);
+  // A new article opens with the AI dialog ready to write a draft; this test writes by hand.
+  await page.waitForSelector('[role="dialog"]', { visible: true });
+  expect("a new article opens the AI dialog on 'Write a draft'", await page.$eval('[role="dialog"]', (d) => !!d.querySelector('input[name="aiMode"]:checked')?.closest("label")?.innerText.includes("Viết bản nháp")));
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[role="dialog"]', { hidden: true });
   log("editor:", page.url());
   await page.waitForSelector(".ProseMirror");
   await page.waitForSelector('[role="toolbar"]');

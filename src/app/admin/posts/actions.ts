@@ -83,7 +83,8 @@ export async function createPost(formData: FormData) {
   });
 
   revalidatePath("/admin");
-  redirect(`/admin/posts/${post.id}?locale=${site.defaultLocale}`);
+  // A new article starts where most do: the AI dialog, ready to write a draft (closing it writes by hand).
+  redirect(`/admin/posts/${post.id}?locale=${site.defaultLocale}&ai=draft`);
 }
 
 const SaveInput = z.object({

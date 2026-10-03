@@ -12,6 +12,13 @@ import { siteBrief, type BriefSite } from "./ai-brief";
 export const CADENCES = ["weekdays", "daily", "threePerWeek", "twoPerWeek", "weekly"] as const;
 export type Cadence = (typeof CADENCES)[number];
 export const MAX_PLAN_ARTICLES = 30;
+/** Below this many words the body is just an outline (a planned draft), not an article yet. */
+export const OUTLINE_ONLY_WORDS = 150;
+
+/** A planned draft still holding only its outline: the AI writes the article from it. */
+export function isOutlineOnly(html: string) {
+  return html.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length < OUTLINE_ONLY_WORDS;
+}
 
 export type PlanIdea = {
   title: string;

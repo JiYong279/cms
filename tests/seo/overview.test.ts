@@ -3,6 +3,7 @@
 import {
   MIN_CLUSTER_ARTICLES,
   getLanguageGaps,
+  getArticlesToWrite,
   getMonthlyOutput,
   getNextSteps,
   getRecentCount,
@@ -61,6 +62,19 @@ check("of two live pillars, the older is the topic's", getTopicCoverage([newer, 
 const lateEn = post({ versions: [...live("2025-06-01"), { locale: "en", status: "published", publishedAt: at("2026-09-28"), scheduledAt: null }] });
 check("a new language of an old article is not a new article", getRecentCount([lateEn], TODAY, TZ) === 0);
 check("an article first out within 30 days counts, a future date does not", getRecentCount([post({ versions: live("2026-09-10") }), post({ versions: live("2026-10-05") })], TODAY, TZ) === 1);
+
+// "Articles to write": planned, not out yet, late or within a week, the earliest first.
+const toWrite = getArticlesToWrite(
+  [
+    post({ id: "next-week", versions: draft, plannedFor: "2026-10-05" }),
+    post({ id: "late", versions: draft, plannedFor: "2026-09-20" }),
+    post({ id: "far", versions: draft, plannedFor: "2026-10-30" }),
+    post({ id: "done", versions: live("2026-09-28"), plannedFor: "2026-09-28" }),
+    post({ id: "no-day", versions: draft }),
+  ],
+  TODAY,
+);
+check("articles to write are the late and the coming week's, earliest first", toWrite.map((p) => p.id).join() === "late,next-week", toWrite.map((p) => p.id).join());
 
 const output = getMonthlyOutput(posts, TODAY, TZ);
 check("output covers six months up to this one", output.length === 6 && output[0].month === "2026-04" && output[5].month === "2026-09");

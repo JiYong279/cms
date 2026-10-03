@@ -84,6 +84,10 @@ try {
   await page.waitForSelector('[role="dialog"]', { visible: true });
   await page.click('[role="dialog"] input[value="qubx"]');
   await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click("button::-p-text(Tạo bài cho Qub-X)")]);
+  // A new article opens with the AI dialog; this test goes on without it.
+  await page.waitForSelector('[role="dialog"]', { visible: true });
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[role="dialog"]', { hidden: true });
   postId = page.url().match(/posts\/([0-9a-f-]{36})/)?.[1];
   await page.waitForSelector(".ProseMirror");
 
@@ -222,6 +226,21 @@ try {
   expect("the uncategorised article gets a category to review", !!(await page.$eval(`[data-place-row="${extraId}"] select`, (s) => s.value)));
   const categoryLog = (await admin.req("/admin/activity")).text;
   expect("activity log records both AI runs", categoryLog.includes("Dùng AI đề xuất 2 danh mục cho Qub-X") && categoryLog.includes("Dùng AI xếp"));
+  await page.keyboard.press("Escape");
+
+  // 8. The choice between "Your Claude" and the built-in AI is remembered from one dialog to the next.
+  await inQubx("[data-suggest-categories]");
+  await page.waitForSelector("[data-suggest-dialog]", { visible: true });
+  await page.click('[data-suggest-dialog] [role="radio"]::-p-text(Claude của bạn)');
+  await page.keyboard.press("Escape");
+  await page.goto(`${CMS}/admin/calendar?site=qubx`, { waitUntil: "networkidle0" });
+  await page.click("[data-plan-ai]");
+  await page.waitForSelector("[data-plan-dialog]", { visible: true });
+  const remembered = await page.$eval('[data-plan-dialog] [role="radio"][aria-checked="true"]', (b) => b.textContent);
+  expect("another AI dialog opens on the choice made last time", remembered === "Claude của bạn", remembered);
+  // Back to the built-in AI for the next run.
+  await page.click('[data-plan-dialog] [role="radio"]::-p-text(AI tích hợp)');
+  await page.keyboard.press("Escape");
 } catch (error) {
   failures++;
   console.log("ERROR:", error.message);

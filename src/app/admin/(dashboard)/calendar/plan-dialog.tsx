@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { AlertTriangle, CalendarPlus, CircleAlert, Loader2, RotateCcw, Sparkles, Star, X } from "lucide-react";
 import type { Locale } from "@/db/schema";
 import { fmt } from "@/i18n";
-import { AiEnginePanel, type AiEngine } from "@/components/ai-engine-panel";
+import { AiEnginePanel, useAiEngine } from "@/components/ai-engine-panel";
 import { useI18n } from "@/i18n/client";
 import type { ContentBrief } from "@/lib/ai-brief";
 import { CADENCES, MAX_PLAN_ARTICLES, contentPlanPrompt, parseContentPlan, planDates, type Cadence, type PlanIdea } from "@/lib/content-plan";
@@ -85,7 +85,7 @@ function PlanDialog({ sites, defaultSiteId, startDay, aiEnabled, initialTopic, o
   const [count, setCount] = useState(10);
   const [start, setStart] = useState(startDay);
   const [cadence, setCadence] = useState<Cadence>("weekdays");
-  const [engine, setEngine] = useState<AiEngine>(aiEnabled ? "builtin" : "own");
+  const [engine, setEngine] = useAiEngine(aiEnabled, null);
   const [pasted, setPasted] = useState("");
   const [ideas, setIdeas] = useState<Idea[] | null>(null);
   const [error, setError] = useState<string | null>(null);

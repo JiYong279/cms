@@ -115,6 +115,18 @@ export function getMonthlyOutput(posts: OverviewPost[], today: string, timeZone:
   return months.map((m) => ({ month: m, count: days.filter((d) => d.startsWith(m)).length }));
 }
 
+/** "Articles to write" looks this many days ahead (articles already late are always shown). */
+export const WRITE_AHEAD_DAYS = 7;
+
+/** Articles not live or scheduled yet whose planned day has passed or comes within WRITE_AHEAD_DAYS, the earliest first. */
+export function getArticlesToWrite(posts: OverviewPost[], today: string) {
+  const until = addDays(today, WRITE_AHEAD_DAYS);
+  return posts
+    .filter((p): p is OverviewPost & { plannedFor: string } => !!p.plannedFor && p.plannedFor <= until)
+    .filter((p) => !p.versions.some((v) => v.status === "published" || v.status === "scheduled"))
+    .sort((a, b) => a.plannedFor.localeCompare(b.plannedFor));
+}
+
 /** Articles first published in the last RECENT_DAYS days (a new language of an old article is not new). */
 export function getRecentCount(posts: OverviewPost[], today: string, timeZone: string) {
   return posts.filter((p) => {
