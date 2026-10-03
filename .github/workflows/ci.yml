@@ -159,7 +159,13 @@ jobs:
           ssh staging IMAGE_TAG="$IMAGE_TAG" APP_DIR="$APP_DIR" bash -s <<'SCRIPT'
           set -euo pipefail
           cd "$APP_DIR"
-          docker compose -f docker-compose.yml -f docker-compose.vps.yml up -d --no-build --wait --remove-orphans
+          compose="docker compose -f docker-compose.yml -f docker-compose.vps.yml"
+          # A copy of the database before this release migrates it; a failed copy stops the deploy. Skipped
+          # only on the first deploy with backups, when cms-backup is not running yet (it copies on start).
+          if [ -n "$($compose ps --status running -q cms-backup)" ]; then
+            $compose exec -T cms-backup sh -c 'f="/backups/db/cms-$(date -u +%Y%m%d-%H%M%S)-predeploy.dump"; pg_dump --format=custom --no-owner --file="$f.part" && mv "$f.part" "$f" && echo "[backup] wrote $f"'
+          fi
+          $compose up -d --no-build --wait --remove-orphans
           # .env holds the last release that came up healthy: manual compose commands and a rollback read it.
           previous="$(sed -n 's/^IMAGE_TAG=//p' .env)"
           sed -i '/^IMAGE_TAG=/d' .env

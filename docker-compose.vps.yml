@@ -47,6 +47,100 @@ services:
       cms-web:
         condition: service_healthy
 
+  # A copy of the database once a day (and before every deploy, see ci.yml) in the cms_backups volume,
+  # kept BACKUP_KEEP_DAYS days: something to go back to after a bad migration or a mistaken delete.
+  # It lives on this host, so cms-backup-offsite copies it elsewhere. Restoring: README, "Sao lưu".
+  cms-backup:
+    image: postgres:18.6-alpine
+    restart: unless-stopped
+    environment:
+      PGHOST: cms-postgres
+      PGUSER: cms
+      PGDATABASE: cms
+      PGPASSWORD: ${POSTGRES_PASSWORD:?Set POSTGRES_PASSWORD in .env}
+      BACKUP_KEEP_DAYS: ${BACKUP_KEEP_DAYS:-14}
+    volumes:
+      - cms_backups:/backups
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        mkdir -p /backups/db
+        while true; do
+          name="cms-$$(date -u +%Y%m%d-%H%M%S).dump"
+          # Written under a temporary name, so a half-written dump is never taken for a backup.
+          if pg_dump --format=custom --no-owner --file="/backups/db/$$name.part"; then
+            mv "/backups/db/$$name.part" "/backups/db/$$name"
+            echo "[backup] wrote $$name ($$(du -h "/backups/db/$$name" | cut -f1))"
+            find /backups/db -name 'cms-*.dump' -mtime +"$$BACKUP_KEEP_DAYS" -delete
+          else
+            rm -f "/backups/db/$$name.part"
+            echo "[backup] FAILED: pg_dump could not copy the database" >&2
+          fi
+          sleep 86400
+        done
+    healthcheck:
+      # Unhealthy (docker compose ps shows it) once the newest copy is more than 26 hours old.
+      test: ["CMD-SHELL", "find /backups/db -name 'cms-*.dump' -mmin -1560 | grep -q ."]
+      interval: 2m
+      timeout: 10s
+      retries: 2
+    depends_on:
+      cms-postgres:
+        condition: service_healthy
+
+  # Copies the database backups and every image off this host once a day, to any S3 storage
+  # (DigitalOcean Spaces): the copy that survives losing the server. Switched on by adding "offsite" to
+  # COMPOSE_PROFILES in .env, with the BACKUP_S3_* settings (.env.example). Dumps there are kept
+  # BACKUP_OFFSITE_KEEP_DAYS days; images are never deleted there, so one deleted by mistake comes back.
+  cms-backup-offsite:
+    image: pgsty/silo:RELEASE.2026-08-06T00-00-00Z
+    profiles: [offsite]
+    restart: unless-stopped
+    env_file: .env.minio
+    environment:
+      BACKUP_S3_ENDPOINT: ${BACKUP_S3_ENDPOINT:-}
+      BACKUP_S3_BUCKET: ${BACKUP_S3_BUCKET:-}
+      BACKUP_S3_ACCESS_KEY_ID: ${BACKUP_S3_ACCESS_KEY_ID:-}
+      BACKUP_S3_SECRET_ACCESS_KEY: ${BACKUP_S3_SECRET_ACCESS_KEY:-}
+      BACKUP_S3_PREFIX: ${BACKUP_S3_PREFIX:-cms-backups}
+      BACKUP_OFFSITE_KEEP_DAYS: ${BACKUP_OFFSITE_KEEP_DAYS:-30}
+    volumes:
+      - cms_backups:/backups:ro
+    entrypoint: ["sh", "-c"]
+    command:
+      - |
+        set -eu
+        : "$${BACKUP_S3_ENDPOINT:?Set BACKUP_S3_ENDPOINT in .env, e.g. https://sgp1.digitaloceanspaces.com}"
+        : "$${BACKUP_S3_BUCKET:?Set BACKUP_S3_BUCKET in .env}"
+        : "$${BACKUP_S3_ACCESS_KEY_ID:?Set BACKUP_S3_ACCESS_KEY_ID in .env}"
+        : "$${BACKUP_S3_SECRET_ACCESS_KEY:?Set BACKUP_S3_SECRET_ACCESS_KEY in .env}"
+        mcli alias set local http://cms-minio:9000 "$$MINIO_ROOT_USER" "$$MINIO_ROOT_PASSWORD" >/dev/null
+        mcli alias set offsite "$$BACKUP_S3_ENDPOINT" "$$BACKUP_S3_ACCESS_KEY_ID" "$$BACKUP_S3_SECRET_ACCESS_KEY" >/dev/null
+        target="offsite/$$BACKUP_S3_BUCKET/$$BACKUP_S3_PREFIX"
+        # Healthy from the start: the first copy of every image may take long, and a deploy waits for health.
+        date -u +%FT%TZ > /tmp/last-offsite
+        while true; do
+          if mcli mirror --overwrite --exclude '*.part' /backups/db "$$target/db" \
+            && mcli mirror --overwrite local/cms "$$target/media" \
+            && mcli rm --recursive --force --older-than "$${BACKUP_OFFSITE_KEEP_DAYS}d" "$$target/db"; then
+            date -u +%FT%TZ > /tmp/last-offsite
+            echo "[backup] copied to $$target"
+          else
+            echo "[backup] FAILED to copy to $$target" >&2
+          fi
+          sleep 86400
+        done
+    healthcheck:
+      # Unhealthy once the last successful copy is more than 26 hours old (the image has no find or grep).
+      test: ["CMD-SHELL", "test $$(( $$(date +%s) - $$(stat -c %Y /tmp/last-offsite) )) -lt 93600"]
+      interval: 2m
+      timeout: 10s
+      retries: 2
+    depends_on:
+      cms-minio:
+        condition: service_healthy
+
   # Image storage (PGSTY Silo, the maintained fork of the MinIO server; the same release as qubx-backend
   # on this host). Publishes no port and has no console: cms-web uploads over the stack network, and the
   # edge proxy reads over "edge". Its root account is in .env.minio, which the app containers never load.
@@ -97,6 +191,7 @@ services:
 
 volumes:
   cms_minio:
+  cms_backups:
 
 networks:
   # Created once per host (docker network create edge); see coauths-infra-edge.
