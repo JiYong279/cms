@@ -1,5 +1,6 @@
 // The editorial calendar in a real Chrome/Edge: a draft waits under "no date yet", is dragged onto a
-// day, gets someone to look after it in the editor, and is dragged back.  npm run test:calendar
+// day, gets someone to look after it in the editor, and is dragged back. A scheduled article moves to
+// another day at the same time; a published one stays and says why.  npm run test:calendar
 import fs from "node:fs";
 import puppeteer from "puppeteer-core";
 import { ADMIN, CMS, Client, EDITOR, destroyPosts } from "../e2e/lib.mjs";
@@ -42,6 +43,29 @@ const month = new Date().toISOString().slice(0, 7);
 const DAY = `${month}-15`;
 const calendarUrl = `${CMS}/admin/calendar?month=${month}`;
 
+// A scheduled and a published article, on days that are still to come and fall in one month.
+const addDays = (day, n) => new Date(Date.parse(`${day}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+const today = new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Ho_Chi_Minh" }).format(new Date());
+const nextMonth = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)), 1)).toISOString().slice(0, 10);
+const base = Number(today.slice(8, 10)) <= 24 ? today : nextMonth;
+const FROM = addDays(base, 2);
+const TO = addDays(base, 4);
+const scheduleUrl = `${CMS}/admin/calendar?month=${FROM.slice(0, 7)}`;
+async function makePost(title, status, scheduledAt) {
+  const r = await admin.submit("/admin", 'name="siteId"', { siteId: "qubx" });
+  const id = r.location?.match(/posts\/([0-9a-f-]{36})/)?.[1];
+  await admin.call(`/admin/posts/${id}?locale=vi`, "savePost", [
+    {
+      postId: id, locale: "vi", status, title, slug: "", excerpt: "Thử lịch.", contentJson: null, contentHtml: "<p>Thử.</p>",
+      metaTitle: "", metaDescription: "", focusKeyword: "", noindex: false, scheduledAt, categoryId: null, featured: false, coverImageUrl: "",
+    },
+  ]);
+  return id;
+}
+// 09:30 in Vietnam.
+const scheduledId = await makePost("Bài thử hẹn giờ trên lịch", "scheduled", `${FROM}T02:30:00Z`);
+const publishedId = await makePost("Bài thử đã đăng trên lịch", "published", null);
+
 const browser = await puppeteer.launch({ executablePath, headless: true, defaultViewport: { width: 1440, height: 1000 } });
 const page = await browser.newPage();
 const errors = [];
@@ -49,18 +73,19 @@ page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
 page.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
 
 const card = `[data-post-id="${postId}"]`;
-/** Drags the article's card onto a day cell or the "no date yet" column, as the browser does it. */
-async function drag(target) {
-  await page.$eval(card, (el) => el.dispatchEvent(new DragEvent("dragstart", { bubbles: true, dataTransfer: new DataTransfer() })));
+/** Drags a card (the draft's by default) onto a day cell or the "no date yet" column, as the browser does it. */
+async function drag(target, from = card) {
+  await page.$eval(from, (el) => el.dispatchEvent(new DragEvent("dragstart", { bubbles: true, cancelable: true, dataTransfer: new DataTransfer() })));
   await sleep(100);
   await page.$eval(target, (el) => {
     const dataTransfer = new DataTransfer();
     el.dispatchEvent(new DragEvent("dragover", { bubbles: true, cancelable: true, dataTransfer }));
     el.dispatchEvent(new DragEvent("drop", { bubbles: true, cancelable: true, dataTransfer }));
   });
-  await page.$eval(card, (el) => el.dispatchEvent(new DragEvent("dragend", { bubbles: true })));
+  await page.$eval(from, (el) => el.dispatchEvent(new DragEvent("dragend", { bubbles: true })));
 }
 const statusText = () => page.$eval('[role="status"]', (el) => el.textContent ?? "");
+const waitForStatus = (text) => page.waitForFunction((x) => document.querySelector('[role="status"]')?.textContent?.includes(x), { timeout: 15000 }, text);
 
 try {
   await page.goto(`${CMS}/login`, { waitUntil: "networkidle0" });
@@ -103,6 +128,43 @@ try {
   await page.reload({ waitUntil: "networkidle0" });
   expect("dragging it back to 'no date yet' removes the day", !!(await page.$(`[data-unplanned-list] ${card}`)));
 
+  // A scheduled article moves to another day and keeps its time.
+  const scheduled = `[data-post-id="${scheduledId}"]`;
+  await page.goto(scheduleUrl, { waitUntil: "networkidle0" });
+  expect("a scheduled article shows on its day", !!(await page.$(`[data-calendar-day="${FROM}"] ${scheduled}`)));
+  await drag(`[data-calendar-day="${TO}"]`, scheduled);
+  await waitForStatus("Đã dời lịch đăng");
+  expect("dragging it confirms the new day at the same time", (await statusText()).includes("09:30"), await statusText());
+  await page.reload({ waitUntil: "networkidle0" });
+  const moved = await page.$(`[data-calendar-day="${TO}"] ${scheduled}`);
+  expect("after reloading it is scheduled on the new day, still at 09:30", !!moved && (await moved.evaluate((el) => el.textContent ?? "")).includes("09:30"));
+  await shot(page, "calendar-04-rescheduled");
+
+  // It needs a day, and one still to come.
+  await drag("aside[data-drop='unplanned']", scheduled);
+  await waitForStatus("phải có ngày đăng");
+  expect("a scheduled article cannot lose its day", !!(await page.$(`[data-calendar-day="${TO}"] ${scheduled}`)));
+  const past = addDays(today, -1);
+  if (await page.$(`[data-calendar-day="${past}"]`)) {
+    await drag(`[data-calendar-day="${past}"]`, scheduled);
+    await waitForStatus("thời điểm đã qua");
+    expect("nor be moved to a day that has passed", !!(await page.$(`[data-calendar-day="${TO}"] ${scheduled}`)));
+  }
+  let s = await admin.call("/admin/calendar", "reschedulePost", [{ postId: scheduledId, from: TO, to: past }]);
+  expect("the server refuses a day that has passed", s.ok === false && /thời điểm đã qua/.test(s.error), JSON.stringify(s));
+
+  // A published article stays on its day and says how to change the date readers see.
+  await page.goto(calendarUrl, { waitUntil: "networkidle0" });
+  const published = `[data-post-id="${publishedId}"]`;
+  expect("a published article shows on the day it went out", !!(await page.$(`[data-calendar-day="${today}"] ${published}`)));
+  await drag(`[data-calendar-day="${today === DAY ? addDays(today, 1) : DAY}"]`, published);
+  await waitForStatus("đã đăng nên không kéo");
+  expect("trying to drag it explains it stays, and where to change its date", (await statusText()).includes("Ngày đăng") && !!(await page.$('[data-notice="locked"]')), await statusText());
+  await shot(page, "calendar-05-published-locked");
+  expect("it has not moved", !!(await page.$(`[data-calendar-day="${today}"] ${published}`)));
+  s = await admin.call("/admin/calendar", "reschedulePost", [{ postId: publishedId, from: today, to: addDays(today, 3) }]);
+  expect("the server does not move a published article either", s.ok === false, JSON.stringify(s));
+
   // Phones get the month as a list of days.
   await admin.call("/admin/calendar", "planPost", [{ postId, plannedFor: DAY }]);
   await page.setViewport({ width: 390, height: 844 });
@@ -118,7 +180,7 @@ try {
 } finally {
   expect("no errors in the browser console", errors.length === 0, errors.slice(0, 5).join(" | "));
   await browser.close();
-  await destroyPosts(admin, postId ? [postId] : []);
+  await destroyPosts(admin, [postId, scheduledId, publishedId].filter(Boolean));
   console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
   process.exit(failures ? 1 : 0);
 }

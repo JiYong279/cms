@@ -18,6 +18,23 @@ export function daysBetween(from: string, to: string) {
   return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
 }
 
+/** Minutes a time zone is ahead of UTC at an instant (negative when behind). */
+function getUtcOffsetMinutes(date: Date, timeZone: string) {
+  const name = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" })
+    .formatToParts(date)
+    .find((p) => p.type === "timeZoneName")?.value;
+  // "GMT+07:00", "GMT-03:30", or plain "GMT" for UTC itself.
+  const m = name?.match(/GMT([+-])(\d{2}):(\d{2})/);
+  return m ? (m[1] === "-" ? -1 : 1) * (Number(m[2]) * 60 + Number(m[3])) : 0;
+}
+
+/** The instant on `day` with the same time of day as `at`, both read in a time zone. */
+export function moveToDay(at: Date, day: string, timeZone: string) {
+  const shifted = new Date(at.getTime() + daysBetween(getDayKey(at, timeZone), day) * DAY_MS);
+  // A daylight-saving change in between would move the time of day: put it back.
+  return new Date(shifted.getTime() + (getUtcOffsetMinutes(at, timeZone) - getUtcOffsetMinutes(shifted, timeZone)) * 60_000);
+}
+
 /** The Monday of the week `day` is in. */
 export function getWeekStart(day: string) {
   // getUTCDay() counts from Sunday; weeks here start on Monday.

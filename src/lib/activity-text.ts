@@ -10,7 +10,7 @@ import { fmt, type Dict } from "@/i18n";
  *   post.status_changed / post.unpublished   { locale, status }
  *   post.synced                              { locale, source }
  *   post.purged                              { days }
- *   post.planned                             { date: "YYYY-MM-DD" }
+ *   post.planned / post.rescheduled          { date: "YYYY-MM-DD" }
  *   post.assigned                            { name }
  *   post.ai_planned                          { topic, n, name }
  *   post.ai_categorized / category.ai_proposed   { n, name }   (name: the website)

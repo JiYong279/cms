@@ -1,13 +1,14 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import Link from "next/link";
-import { CalendarX2, CheckCircle2, Loader2, XCircle } from "lucide-react";
+import { CalendarX2, CheckCircle2, Loader2, Lock, X, XCircle } from "lucide-react";
 import type { Locale, PostStatus } from "@/db/schema";
 import { fmt } from "@/i18n";
 import { useI18n } from "@/i18n/client";
 import { cn } from "@/lib/utils";
 import { planPost } from "../../posts/planning-actions";
+import { reschedulePost } from "./schedule-actions";
 
 /** One card on the calendar: an article's live versions on one day, or its versions waiting for their planned day. */
 export type CalendarEntry = {
@@ -21,9 +22,10 @@ export type CalendarEntry = {
   time: string | null;
   status: PostStatus;
   locales: Locale[];
-  /** Placed by the article's planned day (it moves when dragged), not by a publishing date. */
+  /** Placed by the article's planned day, not by a publishing date. */
   planned: boolean;
-  movable: boolean;
+  /** Why the card cannot be dragged to another day; null when it can. */
+  lock: "published" | "notAllowed" | null;
   site: string;
   assignee: string | null;
 };
@@ -47,6 +49,10 @@ const STATUS_STYLE: Record<PostStatus, { card: string; dot: string }> = {
 const LEGEND: PostStatus[] = ["published", "scheduled", "in_review", "draft"];
 /** Drop target that removes the planned day. */
 const UNPLANNED = "unplanned";
+/** How long a confirmation stays on screen; problems stay until closed. */
+const NOTICE_MS = 6000;
+
+type Notice = { tone: "ok" | "error" | "locked"; text: string };
 
 function initials(name: string) {
   const parts = name.trim().split(/\s+/);
@@ -62,36 +68,69 @@ function byTime(a: CalendarEntry, b: CalendarEntry) {
 export function EditorialCalendar({ weeks, month, today, weekdays, entries, showSite }: Props) {
   const { t } = useI18n();
   const c = t.posts.calendar;
-  // Days changed here, shown at once while the server saves them.
+  // Days changed here (by card), shown at once while the server saves them.
   const [moved, setMoved] = useState<Map<string, string | null>>(new Map());
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<string | null>(null);
-  const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null);
+  const [notice, setNotice] = useState<Notice | null>(null);
   const [pending, start] = useTransition();
 
-  const placed = entries.map((e) => (e.movable && moved.has(e.postId) ? { ...e, day: moved.get(e.postId) ?? null } : e));
+  useEffect(() => {
+    if (notice?.tone !== "ok") return;
+    const timer = setTimeout(() => setNotice(null), NOTICE_MS);
+    return () => clearTimeout(timer);
+  }, [notice]);
+
+  const placed = entries.map((e) => (moved.has(e.id) ? { ...e, day: moved.get(e.id) ?? null } : e));
   const onDay = (day: string) => placed.filter((e) => e.day === day).sort(byTime);
   const unplanned = placed.filter((e) => e.day === null);
   const dayLabel = (day: string) =>
     new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${day}T00:00:00Z`));
 
-  function move(postId: string, day: string | null) {
-    const entry = placed.find((e) => e.postId === postId && e.movable);
-    if (!entry || entry.day === day) return;
+  /** Why a card does not move, said when someone tries to drag it. */
+  function lockedText(e: CalendarEntry) {
+    const title = e.title || c.untitled;
+    if (e.lock === "published") return fmt(c.lockedPublished, { title });
+    return e.planned ? t.posts.errors.notAllowedEdit : fmt(c.lockedScheduled, { title });
+  }
+
+  function move(id: string, day: string | null) {
+    const entry = placed.find((e) => e.id === id);
+    if (!entry || entry.lock || entry.day === day) return;
     const title = entry.title || c.untitled;
-    setMoved((m) => new Map(m).set(postId, day));
+    // A scheduled article needs a day, and one still to come.
+    const from = entry.planned ? null : entry.day;
+    if (!entry.planned && (!from || !day)) {
+      setNotice({ tone: "error", text: c.scheduledNeedsDay });
+      return;
+    }
+    if (from && day && day < today) {
+      setNotice({ tone: "error", text: t.posts.errors.pastSchedule });
+      return;
+    }
+
+    const forget = () =>
+      setMoved((m) => {
+        const next = new Map(m);
+        next.delete(id);
+        return next;
+      });
+    setMoved((m) => new Map(m).set(id, day));
     setNotice(null);
     start(async () => {
-      const result = await planPost({ postId, plannedFor: day });
+      if (from && day) {
+        const result = await reschedulePost({ postId: entry.postId, from, to: day });
+        // The page comes back with the card under its new day (and a new id): nothing to hold.
+        forget();
+        setNotice(result.ok ? { tone: "ok", text: fmt(c.rescheduled, { title, date: dayLabel(day), time: entry.time ?? "" }) } : { tone: "error", text: result.error });
+        return;
+      }
+      const result = await planPost({ postId: entry.postId, plannedFor: day });
       if (result.ok) {
-        setNotice({ ok: true, text: day ? fmt(c.moved, { title, date: dayLabel(day) }) : fmt(c.unplannedDone, { title }) });
+        setNotice({ tone: "ok", text: day ? fmt(c.moved, { title, date: dayLabel(day) }) : fmt(c.unplannedDone, { title }) });
       } else {
-        setMoved((m) => {
-          const next = new Map(m);
-          next.delete(postId);
-          return next;
-        });
-        setNotice({ ok: false, text: result.error });
+        forget();
+        setNotice({ tone: "error", text: result.error });
       }
     });
   }
@@ -120,17 +159,23 @@ export function EditorialCalendar({ weeks, month, today, weekdays, entries, show
     <Link
       key={e.id}
       href={e.href}
-      draggable={e.movable}
+      // Every card can be picked up, so a locked one can say why it stays.
+      draggable
       data-entry={e.id}
       data-post-id={e.postId}
       data-day={e.day ?? ""}
       data-status={e.status}
+      data-lock={e.lock ?? undefined}
       onDragStart={(ev) => {
-        if (!e.movable) return;
+        if (e.lock) {
+          ev.preventDefault();
+          setNotice({ tone: "locked", text: lockedText(e) });
+          return;
+        }
         ev.dataTransfer.effectAllowed = "move";
         // Firefox starts a drag only when some data is set.
         ev.dataTransfer.setData("text/plain", e.postId);
-        setDragging(e.postId);
+        setDragging(e.id);
       }}
       onDragEnd={() => {
         setDragging(null);
@@ -140,8 +185,8 @@ export function EditorialCalendar({ weeks, month, today, weekdays, entries, show
       className={cn(
         "group block rounded-md border border-zinc-200 border-l-[3px] px-2 py-1.5 text-left shadow-xs transition hover:border-zinc-300 hover:shadow-sm",
         STATUS_STYLE[e.status].card,
-        e.movable && "cursor-grab active:cursor-grabbing",
-        dragging === e.postId && e.movable && "opacity-40",
+        !e.lock && "cursor-grab active:cursor-grabbing",
+        dragging === e.id && "opacity-40",
       )}
     >
       <span className={cn("block font-medium leading-snug text-zinc-800 [overflow-wrap:anywhere]", compact ? "line-clamp-2 text-xs" : "text-sm")}>
@@ -236,18 +281,30 @@ export function EditorialCalendar({ weeks, month, today, weekdays, entries, show
               {t.common.status[s]}
             </span>
           ))}
-          <span role="status" className="ml-auto flex items-center gap-1.5">
-            {pending ? (
-              <Loader2 className="size-3.5 animate-spin" />
-            ) : notice ? (
-              <>
-                {notice.ok ? <CheckCircle2 className="size-3.5 text-emerald-600" /> : <XCircle className="size-3.5 text-red-500" />}
-                <span className={notice.ok ? "text-zinc-600" : "text-red-600"}>{notice.text}</span>
-              </>
-            ) : null}
-          </span>
+          {pending && <Loader2 className="ml-auto size-3.5 animate-spin" aria-hidden />}
         </div>
       </div>
+
+      {/* Floats over the page, so it shows wherever the card was dropped. */}
+      {notice && (
+        <div
+          role="status"
+          data-notice={notice.tone}
+          className="fixed bottom-6 left-1/2 z-50 flex w-[min(92vw,32rem)] -translate-x-1/2 items-start gap-3 rounded-xl bg-ink px-4 py-3 text-sm text-white shadow-2xl"
+        >
+          {notice.tone === "ok" ? (
+            <CheckCircle2 className="mt-0.5 size-4 shrink-0 text-emerald-400" />
+          ) : notice.tone === "locked" ? (
+            <Lock className="mt-0.5 size-4 shrink-0 text-amber-300" />
+          ) : (
+            <XCircle className="mt-0.5 size-4 shrink-0 text-red-400" />
+          )}
+          <span className="flex-1 leading-relaxed">{notice.text}</span>
+          <button type="button" onClick={() => setNotice(null)} aria-label={t.common.close} className="text-white/50 hover:text-white">
+            <X className="size-4" />
+          </button>
+        </div>
+      )}
 
       <aside
         {...dropTarget(UNPLANNED)}
