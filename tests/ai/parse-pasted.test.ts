@@ -71,16 +71,18 @@ check("an empty paste is refused", !parsePastedArticle("  ", categories).ok);
 check("a paste without a title is refused", (() => { const x = parsePastedArticle("Chỉ có một đoạn văn.", categories); return !x.ok && x.error === "noTitle"; })());
 
 const prompt = draftPrompt({
-  site: { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" },
+  site: { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com", brief: {} },
   locale: "vi",
   topic: "Cách chọn phần mềm EMR",
   keyPoints: "",
   focusKeyword: "",
   words: 1200,
   categories,
+  kind: "cluster",
+  links: [],
 });
 check("the prompt lists the categories and the format", prompt.includes("Vận hành phòng khám | Hồ sơ bệnh án điện tử (EMR)") && prompt.includes("metaDescription:") && prompt.includes("> [!TIP]"));
-check("the prompt leaves out empty options", !prompt.includes("Các ý cần có") && !prompt.includes("Từ khoá chính:"));
+check("the prompt leaves out empty options", !prompt.includes("Các ý cần có:") &&!prompt.includes("Từ khoá chính:"));
 
 const FENCE = "`".repeat(3);
 check("the prompt asks for the article in one code block (chat apps give it a Copy button)", prompt.includes(`MỘT khối code ${FENCE}markdown`));
@@ -91,7 +93,7 @@ const wrapped = parsePastedArticle(
 check("an answer in a code block, with words before and after it, is read", wrapped.ok && wrapped.article.title === "Bài trong khối code" && wrapped.article.sections === 1, JSON.stringify(wrapped).slice(0, 160));
 
 // Pasting the prompt itself instead of the AI answer must not fill the article with the template.
-const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
+const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com", brief: {} };
 const source = { title: "Chọn phần mềm spa", excerpt: "Tóm tắt.", metaTitle: "", metaDescription: "", focusKeyword: "", html: "<h2>Mục</h2><p>Nội dung.</p>" };
 for (const [label, text] of [
   ["draft prompt (vi)", prompt],
@@ -104,7 +106,7 @@ for (const [label, text] of [
 
 // Translating with your own Claude keeps the pictures and videos of the article.
 {
-  const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
+  const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com", brief: {} };
   const html = [
     "<h2>Mục</h2><p>Nội dung.</p>",
     '<img src="https://cdn.qub-x.com/cms/2026/09/le-tan-a1b2c3d4.webp" alt="Lễ tân đón khách" title="Quầy lễ tân">',
@@ -147,7 +149,7 @@ check(
   prompt.includes("Dẫn nguồn (bắt buộc)") && prompt.includes("moh.gov.vn") && prompt.includes("không bịa link") && prompt.includes("## Nguồn tham khảo"),
 );
 {
-  const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com" };
+  const site = { id: "qubx", name: "Qub-X", baseUrl: "https://www.qub-x.com", brief: {} };
   const linked = translatePrompt({
     site, from: "vi", to: "en",
     source: { title: "Bài có nguồn", excerpt: "", metaTitle: "", metaDescription: "", focusKeyword: "", html: '<p>Theo <a href="https://moh.gov.vn/">Bộ Y tế</a>.</p>' },

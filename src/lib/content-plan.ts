@@ -1,6 +1,6 @@
 import type { JSONContent } from "@tiptap/react";
 import type { Locale } from "@/db/schema";
-import { siteBrief } from "./ai-brief";
+import { siteBrief, type BriefSite } from "./ai-brief";
 
 /**
  * "Plan with AI" on the editorial calendar: an AI proposes a cluster of articles around a topic
@@ -12,6 +12,13 @@ import { siteBrief } from "./ai-brief";
 export const CADENCES = ["weekdays", "daily", "threePerWeek", "twoPerWeek", "weekly"] as const;
 export type Cadence = (typeof CADENCES)[number];
 export const MAX_PLAN_ARTICLES = 30;
+/** Below this many words the body is just an outline (a planned draft), not an article yet. */
+export const OUTLINE_ONLY_WORDS = 150;
+
+/** A planned draft still holding only its outline: the AI writes the article from it. */
+export function isOutlineOnly(html: string) {
+  return html.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length < OUTLINE_ONLY_WORDS;
+}
 
 export type PlanIdea = {
   title: string;
@@ -52,7 +59,7 @@ const ANSWER_RULE: Record<Locale, string> = {
 };
 
 type PromptInput = {
-  site: { id: string; name: string; baseUrl: string };
+  site: BriefSite;
   locale: Locale;
   topic: string;
   count: number;
@@ -78,15 +85,16 @@ export function contentPlanPrompt(input: PromptInput) {
   const lines = vi
     ? [
         `Bạn là trưởng nhóm nội dung SEO cho website ${input.site.name} (${input.site.baseUrl}).`,
-        `Bối cảnh: ${siteBrief(input.site.id, input.site)}`,
+        `Bối cảnh: ${siteBrief(input.site)}`,
         "",
         `Lập kế hoạch một cụm ${input.count} bài blog bằng tiếng Việt quanh chủ đề: "${input.topic.trim()}".`,
-        "- Bài 1 là bài tổng quan (pillar: yes) bao quát cả chủ đề. Các bài còn lại (pillar: no) mỗi bài trả lời MỘT câu hỏi cụ thể mà chủ phòng khám, spa hay gõ trên Google: cách làm, so sánh, chi phí, checklist, quy định, lỗi hay gặp…",
+        "- Bài 1 là bài tổng quan (pillar: yes) bao quát cả chủ đề. Các bài còn lại (pillar: no) mỗi bài trả lời MỘT câu hỏi cụ thể mà người đọc của website (xem bối cảnh) hay gõ trên Google: cách làm, so sánh, chi phí, checklist, quy định, lỗi hay gặp…",
         "- Không có hai bài trùng ý, và không trùng các bài website đã có.",
-        "- title: tiêu đề bài, tối đa khoảng 70 ký tự. keyword: cụm 2–5 từ người ta thật sự gõ để tìm bài đó.",
+        "- title: viết theo cách người đọc hỏi hoặc gõ tìm, tối đa khoảng 70 ký tự. keyword: cụm 2–5 từ người ta thật sự gõ để tìm bài đó; mỗi bài một từ khoá riêng, không trùng với bài khác trong cụm hay bài website đã có.",
+        "- Câu hỏi quá nhỏ để thành một bài thì đưa vào dàn ý của bài gần nhất (mục Câu hỏi thường gặp), không tách thành bài riêng.",
         input.categories.length ? `- category: đúng một trong: ${input.categories.join(" | ")}` : null,
         "- why: một câu nói ai tìm bài này và họ cần gì.",
-        "- outline: 3–6 đề mục chính của bài, cách nhau bởi dấu |.",
+        "- outline: 3–6 đề mục chính của bài, viết dạng câu hỏi người đọc hay hỏi khi hợp lý, cách nhau bởi dấu |.",
         existing.length ? `\nCác bài website đã có (không viết lại):\n${existing.map((t) => `- ${t}`).join("\n")}` : null,
         "",
         input.answer === "paste" ? `Mỗi bài một khối theo mẫu:\n${format.join("\n")}` : null,
@@ -95,15 +103,16 @@ export function contentPlanPrompt(input: PromptInput) {
       ]
     : [
         `You lead SEO content for ${input.site.name} (${input.site.baseUrl}).`,
-        `Context: ${siteBrief(input.site.id, input.site)}`,
+        `Context: ${siteBrief(input.site)}`,
         "",
         `Plan a cluster of ${input.count} blog articles in English around the topic: "${input.topic.trim()}".`,
-        "- Article 1 is the overview (pillar: yes) covering the whole topic. Each of the others (pillar: no) answers ONE specific question clinic and spa owners type into Google: how-to, comparison, cost, checklist, regulation, common mistake…",
+        "- Article 1 is the overview (pillar: yes) covering the whole topic. Each of the others (pillar: no) answers ONE specific question the website's readers (see the context) type into Google: how-to, comparison, cost, checklist, regulation, common mistake…",
         "- No two articles on the same point, and none repeating what the website already has.",
-        "- title: the headline, about 70 characters at most. keyword: the 2–5 word phrase people really type to find it.",
+        "- title: phrased the way readers ask or search, about 70 characters at most. keyword: the 2–5 word phrase people really type to find it; each article its own phrase, none shared with another article of the cluster or the website.",
+        "- A question too small for its own article goes into the outline of the closest one (its frequently asked questions), not into a separate article.",
         input.categories.length ? `- category: exactly one of: ${input.categories.join(" | ")}` : null,
         "- why: one sentence on who searches for it and what they need.",
-        "- outline: 3–6 main section headings, separated by |.",
+        "- outline: 3–6 main section headings, phrased as the questions readers ask where it fits, separated by |.",
         existing.length ? `\nArticles the website already has (do not rewrite):\n${existing.map((t) => `- ${t}`).join("\n")}` : null,
         "",
         input.answer === "paste" ? `One block per article, in this format:\n${format.join("\n")}` : null,

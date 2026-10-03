@@ -83,7 +83,8 @@ export async function createPost(formData: FormData) {
   });
 
   revalidatePath("/admin");
-  redirect(`/admin/posts/${post.id}?locale=${site.defaultLocale}`);
+  // A new article starts where most do: the AI dialog, ready to write a draft (closing it writes by hand).
+  redirect(`/admin/posts/${post.id}?locale=${site.defaultLocale}&ai=draft`);
 }
 
 const SaveInput = z.object({
@@ -104,6 +105,8 @@ const SaveInput = z.object({
   publishedAt: z.iso.datetime().nullable().optional(),
   categoryId: z.uuid().nullable(),
   featured: z.boolean(),
+  /** The overview article of its topic; left out, the saved choice stays. */
+  pillar: z.boolean().optional(),
   coverImageUrl: z.url().nullable().or(z.literal("").transform(() => null)),
   /** How many images the editor confirmed may be used in this save (they arrive as "permitted"). */
   imagesConfirmed: z.number().int().min(0).max(500).optional(),
@@ -236,7 +239,7 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
 
       await tx
         .update(schema.posts)
-        .set({ categoryId: input.categoryId, featured: input.featured, coverImageUrl: input.coverImageUrl })
+        .set({ categoryId: input.categoryId, featured: input.featured, pillar: input.pillar, coverImageUrl: input.coverImageUrl })
         .where(eq(schema.posts.id, post.id));
     });
   } catch (error) {

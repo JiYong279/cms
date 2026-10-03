@@ -51,7 +51,7 @@ export async function aiProposePlan(raw: z.input<typeof ProposeInput>): Promise<
   try {
     const ideas = await proposeContentPlan({
       siteId: site.id,
-      site: { name: site.name, baseUrl: site.baseUrl, glossary, categories: categories.map((c) => categoryName(c, input.locale)) },
+      site: { name: site.name, baseUrl: site.baseUrl, brief: site.contentBrief, glossary, categories: categories.map((c) => categoryName(c, input.locale)) },
       locale: input.locale,
       topic: input.topic,
       count: input.count,
@@ -92,6 +92,8 @@ const CreateInput = z.object({
         title: z.string().trim().min(1).max(200),
         focusKeyword: z.string().trim().max(100),
         categoryId: z.uuid().nullable(),
+        /** The overview article of the cluster. */
+        pillar: z.boolean().optional(),
         plannedFor: z.iso.date(),
         why: z.string().trim().max(500),
         outline: z.array(z.string().trim().min(1).max(200)).max(12),
@@ -120,12 +122,24 @@ export async function createPlannedPosts(raw: z.input<typeof CreateInput>): Prom
   );
   if (input.ideas.some((i) => i.categoryId && !siteCategories.has(i.categoryId))) return { ok: false, error: t.posts.errors.invalid };
 
+  // One pillar per topic: a topic that has one (live or being written) keeps it.
+  const withPillar = new Set(
+    (
+      await db
+        .select({ categoryId: schema.posts.categoryId })
+        .from(schema.posts)
+        .where(and(eq(schema.posts.siteId, site.id), eq(schema.posts.pillar, true), isNull(schema.posts.deletedAt)))
+    ).map((p) => p.categoryId),
+  );
+
   const created = await db.transaction(async (tx) => {
     const out: { id: string; title: string }[] = [];
     for (const idea of input.ideas) {
+      const pillar = !!idea.pillar && !(idea.categoryId && withPillar.has(idea.categoryId));
+      if (pillar && idea.categoryId) withPillar.add(idea.categoryId);
       const [post] = await tx
         .insert(schema.posts)
-        .values({ siteId: site.id, authorId: user.id, categoryId: idea.categoryId, plannedFor: idea.plannedFor })
+        .values({ siteId: site.id, authorId: user.id, categoryId: idea.categoryId, pillar, plannedFor: idea.plannedFor })
         .returning();
       const body = outlineBody(idea, input.locale);
       await tx.insert(schema.postTranslations).values({

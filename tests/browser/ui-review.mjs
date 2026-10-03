@@ -186,6 +186,20 @@ try {
     await page.waitForSelector("[data-plan-dialog]", { visible: true });
     await check("plan", "[data-plan-dialog]", width);
     await closeDialog();
+
+    // Content overview, with the brief open for editing.
+    await page.goto(`${CMS}/admin/overview?site=qubx`, { waitUntil: "networkidle0" });
+    await check("overview", null, width);
+    await page.goto(`${CMS}/admin/overview?site=qubx&edit=brief`, { waitUntil: "networkidle0" });
+    await check("overview-brief", "[data-brief]", width);
+
+    // Categories, with the AI proposal dialog open.
+    await page.goto(`${CMS}/admin/categories`, { waitUntil: "networkidle0" });
+    await check("categories", null, width);
+    await page.click("[data-suggest-categories]");
+    await page.waitForSelector("[data-suggest-dialog]", { visible: true });
+    await check("categories-suggest", "[data-suggest-dialog]", width);
+    await closeDialog();
   }
 } catch (error) {
   failures++;

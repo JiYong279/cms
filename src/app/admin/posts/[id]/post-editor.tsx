@@ -33,9 +33,13 @@ import { ConfirmPopover } from "@/components/confirm-popover";
 import { useReturnTo } from "@/components/return-to";
 import type { Locale, PostStatus, PostTranslation } from "@/db/schema";
 import { fmt } from "@/i18n";
+import { useAiEngine } from "@/components/ai-engine-panel";
 import { useI18n } from "@/i18n/client";
 import type { ArticleFields, DraftLength } from "@/lib/ai";
+import type { BriefSite } from "@/lib/ai-brief";
+import type { LinkTarget } from "@/lib/ai-seo";
 import { draftPrompt, parsePastedArticle, translatePrompt } from "@/lib/ai-paste";
+import { isOutlineOnly } from "@/lib/content-plan";
 import { STATUS, slugify } from "@/lib/posts";
 import { SCORE_THRESHOLDS, scoreArticle, type CheckId, type ScoreCheck, type ScoreResult } from "@/lib/seo-score";
 import { FIX_FOR, fieldsFor, type FixField } from "@/lib/seo-fix";
@@ -54,14 +58,14 @@ import { SeoFixDialog } from "./editor/seo-fix-dialog";
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
 
 type Props = {
-  post: { id: string; categoryId: string | null; featured: boolean; coverImageUrl: string | null };
+  post: { id: string; categoryId: string | null; featured: boolean; pillar: boolean; coverImageUrl: string | null };
   locale: Locale;
   locales: LocaleTab[];
   translation: PostTranslation | null;
   /** Locale this translation was made from, when that source has changed since. */
   staleSource: Locale | null;
   /** `viewOrigin` is where to open the article to look at it (see viewOrigin in lib/posts). */
-  site: { id: string; name: string; baseUrl: string; viewOrigin: string; blogPath: string };
+  site: BriefSite & { viewOrigin: string; blogPath: string };
   categories: { id: string; name: string }[];
   /** The editorial calendar's plan for the article (saved on its own, see PlanningFields). */
   planning: { plannedFor: string | null; assigneeId: string | null; assignees: { id: string; name: string }[]; canAssign: boolean };
@@ -75,8 +79,11 @@ type Props = {
   history: { at: Date; who: string; summary: string }[];
   /** ANTHROPIC_API_KEY is set, so the AI assistant can run. */
   aiEnabled: boolean;
+  /** The website's live articles in this language, for AI drafts to link to. */
+  linkTargets: LinkTarget[];
   /** Opened from the other language's "translate into this one": start with the AI dialog translating. */
-  openAi: "translate" | null;
+  /** ?ai= in the address: open the AI dialog on writing a draft or translating. */
+  openAi: "translate" | "draft" | null;
   aiEngine: "own" | "builtin" | null;
   /** The article's author has a public profile in this language (see the Account page). */
   authorHasProfile: boolean;
@@ -85,8 +92,6 @@ type Props = {
 };
 
 const PLACEHOLDER_SLUG = /^bai-viet-[0-9a-f]{8}$/;
-/** Below this many words the body is just an outline (a planned draft), not an article yet. */
-const OUTLINE_ONLY_WORDS = 150;
 
 function toLocalInput(date: Date | null) {
   if (!date) return "";
@@ -144,6 +149,7 @@ export function PostEditor({
   trashed,
   history,
   aiEnabled,
+  linkTargets,
   authorHasProfile,
   timeZone,
   openAi,
@@ -171,6 +177,7 @@ export function PostEditor({
   const [noindex, setNoindex] = useState(translation?.noindex ?? false);
   const [categoryId, setCategoryId] = useState(post.categoryId ?? "");
   const [featured, setFeatured] = useState(post.featured);
+  const [pillar, setPillar] = useState(post.pillar);
   const [coverImageUrl, setCoverImageUrl] = useState(post.coverImageUrl ?? "");
   const [coverImageAlt, setCoverImageAlt] = useState(translation?.coverImageAlt ?? "");
 
@@ -179,7 +186,7 @@ export function PostEditor({
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<{ text: string; href?: string } | null>(null);
   const [publishOpen, setPublishOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(openAi === "translate");
+  const [aiOpen, setAiOpen] = useState(openAi !== null);
   // Where to go once the save in progress succeeds (translating this version into the other language).
   const afterSave = useRef<string | null>(null);
   // Back to the list, calendar or log (with its filters) the article was opened from.
@@ -236,6 +243,7 @@ export function PostEditor({
         publishedAt: publishedAt ? new Date(publishedAt).toISOString() : null,
         categoryId: categoryId || null,
         featured,
+        pillar,
         coverImageUrl: coverImageUrl.trim(),
         coverImageAlt,
         translatedFrom,
@@ -290,6 +298,7 @@ export function PostEditor({
     publishedAt,
     categoryId,
     featured,
+    pillar,
     coverImageUrl,
     coverImageAlt,
     translatedFrom,
@@ -405,6 +414,7 @@ export function PostEditor({
     categoryId: categoryId || null,
     coverImageUrl: coverImageUrl.trim() || null,
     coverImageAlt,
+    pillar,
     authorHasProfile,
     translationInSync: !!otherVersion?.status && !otherVersion.stale && !locales.find((tab) => tab.locale === locale)?.stale,
     siteHost: new URL(site.baseUrl).host,
@@ -837,6 +847,12 @@ export function PostEditor({
                 </select>
               </Field>
               <Toggle
+                checked={pillar}
+                onChange={edit(setPillar)}
+                label={t.editor.panel.pillar}
+                hint={t.editor.panel.pillarHint}
+              />
+              <Toggle
                 checked={featured}
                 onChange={edit(setFeatured)}
                 label={t.editor.panel.featured}
@@ -941,12 +957,14 @@ export function PostEditor({
           categories={categories}
           source={otherVersion ? { locale: otherVersion.locale, exists: !!otherVersion.status } : null}
           enabled={aiEnabled}
+          pillar={pillar}
+          linkTargets={linkTargets}
           hasContent={!!title.trim() || countWords(content.html) > 0}
           dirty={dirty}
           initialKeyword={focusKeyword}
           // A planned draft holds only its outline: start the draft from its title and headings.
-          initialTopic={countWords(content.html) < OUTLINE_ONLY_WORDS ? title : ""}
-          initialKeyPoints={countWords(content.html) < OUTLINE_ONLY_WORDS ? outline.filter(Boolean).join("\n") : ""}
+          initialTopic={isOutlineOnly(content.html) ? title : ""}
+          initialKeyPoints={isOutlineOnly(content.html) ? outline.filter(Boolean).join("\n") : ""}
           initialMode={openAi}
           initialEngine={aiEngine}
           onTranslateOut={translateOut}
@@ -1231,6 +1249,8 @@ function AiDialog({
   categories,
   source,
   enabled,
+  pillar,
+  linkTargets,
   hasContent,
   dirty,
   initialKeyword,
@@ -1244,18 +1264,21 @@ function AiDialog({
 }: {
   postId: string;
   locale: Locale;
-  site: { id: string; name: string; baseUrl: string };
+  site: BriefSite;
   categories: { id: string; name: string }[];
   /** The other language: where a translation comes from. */
   source: { locale: Locale; exists: boolean } | null;
   enabled: boolean;
+  /** The article is its topic's pillar: drafted long and covering the whole topic. */
+  pillar: boolean;
+  linkTargets: LinkTarget[];
   hasContent: boolean;
   /** This version has changes not saved yet (translating it out saves them first). */
   dirty: boolean;
   initialKeyword: string;
   initialTopic: string;
   initialKeyPoints: string;
-  initialMode: "translate" | null;
+  initialMode: "translate" | "draft" | null;
   initialEngine: "own" | "builtin" | null;
   /** Translate this version into `target`: done in that language's editor, which this opens. */
   onTranslateOut: (target: Locale, engine: "own" | "builtin") => void;
@@ -1269,7 +1292,7 @@ function AiDialog({
   // Into this version needs the other one saved; out of it needs something here to translate.
   const canTranslate = !!source?.exists;
   const canTranslateOut = !!source && hasContent;
-  const [engine, setEngine] = useState<"own" | "builtin">(initialEngine ?? (enabled ? "builtin" : "own"));
+  const [engine, setEngine] = useAiEngine(enabled, initialEngine);
   // An empty version with the other language written is most likely waiting to be translated.
   const [mode, setMode] = useState<"draft" | "translate">(initialMode ?? (canTranslate && !hasContent ? "translate" : "draft"));
   // A version with content is most likely the one to translate; an empty one waits for the other.
@@ -1277,7 +1300,7 @@ function AiDialog({
   const [topic, setTopic] = useState(initialTopic);
   const [keyPoints, setKeyPoints] = useState(initialKeyPoints);
   const [keyword, setKeyword] = useState(initialKeyword);
-  const [length, setLength] = useState<DraftLength>("medium");
+  const [length, setLength] = useState<DraftLength>(pillar ? "long" : "medium");
   const [error, setError] = useState<string | null>(null);
   const [running, startRunning] = useTransition();
   const [seconds, setSeconds] = useState(0);
@@ -1322,7 +1345,7 @@ function AiDialog({
     startRunning(async () => {
       const result = from
         ? await aiTranslate({ postId, from, to: locale })
-        : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length });
+        : await aiDraft({ postId, locale, topic, keyPoints, focusKeyword: keyword, length, pillar });
       if (!result.ok) setError(result.error);
       else onDone(result.article, from);
     });
@@ -1346,7 +1369,17 @@ function AiDialog({
         text = translatePrompt({ site, from, to: locale, source: result.source });
         setSourceHtml(result.source.html);
       } else {
-        text = draftPrompt({ site, locale, topic, keyPoints, focusKeyword: keyword, words: DRAFT_WORDS[length], categories });
+        text = draftPrompt({
+          site,
+          locale,
+          topic,
+          keyPoints,
+          focusKeyword: keyword,
+          words: DRAFT_WORDS[length],
+          categories,
+          kind: pillar ? "pillar" : "cluster",
+          links: linkTargets,
+        });
       }
       setPrompt(text);
       try {

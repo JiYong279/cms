@@ -65,7 +65,7 @@ const browser = await puppeteer.launch({ executablePath, headless: true, default
 const page = await browser.newPage();
 const errors = [];
 page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
-page.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
+page.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()} (${m.location()?.url})`));
 page.on("dialog", (d) => d.accept());
 let postId;
 
@@ -82,6 +82,10 @@ try {
   await page.waitForSelector('[role="dialog"]', { visible: true });
   await page.click('[role="dialog"] input[value="qubx"]');
   await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click("button::-p-text(Tạo bài cho Qub-X)")]);
+  // A new article opens with the AI dialog; this test goes on without it.
+  await page.waitForSelector('[role="dialog"]', { visible: true });
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[role="dialog"]', { hidden: true });
   postId = page.url().match(/posts\/([0-9a-f-]{36})/)?.[1];
   await page.waitForSelector("[data-seo-score]");
 

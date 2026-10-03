@@ -4,7 +4,9 @@ import { useEffect, useId, useState, useTransition } from "react";
 import { AlertTriangle, Check, CircleAlert, CircleCheck, Copy, ExternalLink, Loader2, RotateCcw, Sparkles, X } from "lucide-react";
 import type { Locale } from "@/db/schema";
 import { fmt } from "@/i18n";
+import { useAiEngine } from "@/components/ai-engine-panel";
 import { useI18n } from "@/i18n/client";
+import type { BriefSite } from "@/lib/ai-brief";
 import { AI_FIELDS, LIMITS, parseSeoFix, seoFixPrompt, suggestSlug, withinLimits, type AiField, type FixArticle, type FixField } from "@/lib/seo-fix";
 import { cn } from "@/lib/utils";
 import { aiFixSeo } from "../../ai-actions";
@@ -12,7 +14,7 @@ import { aiFixSeo } from "../../ai-actions";
 type Props = {
   postId: string;
   locale: Locale;
-  site: { id: string; name: string; baseUrl: string };
+  site: BriefSite;
   /** The built-in AI has an API key. */
   enabled: boolean;
   /** Fields ticked at first: those fixing the checks the person clicked. */
@@ -37,7 +39,7 @@ export function SeoFixDialog({ postId, locale, site, enabled, initial, article, 
   const a = t.editor.ai;
   const f = t.editor.seoFix;
   const titleId = useId();
-  const [engine, setEngine] = useState<"own" | "builtin">(enabled ? "builtin" : "own");
+  const [engine, setEngine] = useAiEngine(enabled, null);
   const [chosen, setChosen] = useState<FixField[]>(initial.length ? initial : ["metaTitle", "metaDescription"]);
   const [prompt, setPrompt] = useState("");
   const [copied, setCopied] = useState<"yes" | "manual" | null>(null);

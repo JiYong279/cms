@@ -1,6 +1,7 @@
 import { marked } from "marked";
 import type { Locale } from "@/db/schema";
-import { siteBrief } from "./ai-brief";
+import { siteBrief, type BriefSite } from "./ai-brief";
+import { linkRules, seoWritingRules, type ArticleKind, type LinkTarget } from "./ai-seo";
 import { SOURCE_RULES } from "./ai-sources";
 import { imageSuggestionHtml } from "./image-suggestions";
 
@@ -37,7 +38,7 @@ export type PastedArticle = {
 /** "isPrompt": the prompt itself was pasted back instead of the AI's answer to it. */
 export type PasteError = "empty" | "noTitle" | "noBody" | "isPrompt";
 
-type Site = { id: string; name: string; baseUrl: string };
+type Site = BriefSite;
 type Category = { id: string; name: string };
 
 const LANGUAGE: Record<Locale, { vi: string; en: string }> = {
@@ -99,21 +100,29 @@ export function draftPrompt(input: {
   focusKeyword: string;
   words: number;
   categories: Category[];
+  kind: ArticleKind;
+  /** The website's live articles the draft may link to. */
+  links: LinkTarget[];
 }) {
   const vi = input.locale === "vi";
   const points = input.keyPoints.trim();
+  const links = linkRules(input.locale, input.links, input.kind);
   const lines = vi
     ? [
         `Bạn viết bài blog cho website ${input.site.name} (${input.site.baseUrl}).`,
-        `Bối cảnh: ${siteBrief(input.site.id, input.site)}`,
+        `Bối cảnh: ${siteBrief(input.site)}`,
         "",
         `Hãy viết một bài blog bằng ${LANGUAGE.vi.vi}, khoảng ${input.words} từ.`,
         `Chủ đề: ${input.topic.trim()}`,
         points ? `Các ý cần có:\n${points}` : null,
         input.focusKeyword.trim() ? `Từ khoá chính: ${input.focusKeyword.trim()}` : null,
         "",
-        "Giọng văn rõ ràng, thân thiện, chuyên nghiệp; ưu tiên ví dụ cụ thể. Không bịa số liệu, giá, luật hay quy định; khi nội dung phụ thuộc vào quy định, nhắc người đọc kiểm tra văn bản hiện hành. Kết bài bằng một khung TIP tóm tắt điểm chính.",
+        "Giọng văn rõ ràng, thân thiện, chuyên nghiệp; ưu tiên ví dụ cụ thể. Không bịa số liệu, giá, luật hay quy định; khi nội dung phụ thuộc vào quy định, nhắc người đọc kiểm tra văn bản hiện hành. Ngay trước mục Câu hỏi thường gặp, đặt một khung TIP tóm tắt điểm chính.",
         "",
+        seoWritingRules("vi", input.kind),
+        "",
+        links || null,
+        links ? "" : null,
         SOURCE_RULES.vi,
         "",
         IMAGE_RULES.vi,
@@ -124,15 +133,19 @@ export function draftPrompt(input: {
       ]
     : [
         `You write blog articles for ${input.site.name} (${input.site.baseUrl}).`,
-        `Context: ${siteBrief(input.site.id, input.site)}`,
+        `Context: ${siteBrief(input.site)}`,
         "",
         `Write a blog article in ${LANGUAGE.en.en}, about ${input.words} words long.`,
         `Topic: ${input.topic.trim()}`,
         points ? `Points to cover:\n${points}` : null,
         input.focusKeyword.trim() ? `Main search phrase: ${input.focusKeyword.trim()}` : null,
         "",
-        "Clear, warm, professional voice; prefer concrete examples. Do not invent statistics, prices, laws or regulations; when a point depends on a regulation, tell readers to check the current text. End with a TIP box that sums up the key point.",
+        "Clear, warm, professional voice; prefer concrete examples. Do not invent statistics, prices, laws or regulations; when a point depends on a regulation, tell readers to check the current text. Just before the frequently asked questions, add a TIP box that sums up the key point.",
         "",
+        seoWritingRules("en", input.kind),
+        "",
+        links || null,
+        links ? "" : null,
         SOURCE_RULES.en,
         "",
         IMAGE_RULES.en,
@@ -176,7 +189,7 @@ export function translatePrompt(input: {
   const intro = vi
     ? [
         `Bạn dịch bài blog cho website ${input.site.name} (${input.site.baseUrl}).`,
-        `Bối cảnh: ${siteBrief(input.site.id, input.site)}`,
+        `Bối cảnh: ${siteBrief(input.site)}`,
         "",
         `Hãy dịch bài dưới đây từ ${LANGUAGE[input.from].vi} sang ${LANGUAGE[input.to].vi}, tự nhiên như người bản xứ viết, giữ nguyên ý, giọng văn và bố cục. Phần SEO (tiêu đề SEO, mô tả, từ khoá) hãy viết lại theo cách người đọc ${LANGUAGE[input.to].vi} sẽ tìm kiếm.`,
         "Nội dung bài đang ở dạng HTML: <h2>/<h3> là mục, <div data-callout data-variant=\"info|success|warning\"> là khung NOTE/TIP/WARNING.",
@@ -188,7 +201,7 @@ export function translatePrompt(input: {
       ]
     : [
         `You translate blog articles for ${input.site.name} (${input.site.baseUrl}).`,
-        `Context: ${siteBrief(input.site.id, input.site)}`,
+        `Context: ${siteBrief(input.site)}`,
         "",
         `Translate the article below from ${LANGUAGE[input.from].en} into ${LANGUAGE[input.to].en}, naturally, as a native writer would, keeping the meaning, tone and structure. Rewrite the SEO fields (SEO title, description, search phrase) the way ${LANGUAGE[input.to].en} readers would search.`,
         "The body is HTML: <h2>/<h3> are sections, <div data-callout data-variant=\"info|success|warning\"> are NOTE/TIP/WARNING boxes.",

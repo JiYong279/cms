@@ -19,6 +19,7 @@ const empty: ScoreInput = {
   categoryId: null,
   coverImageUrl: null,
   coverImageAlt: "",
+  pillar: false,
   authorHasProfile: false,
   translationInSync: false,
   siteHost: "www.qub-x.com",
@@ -53,6 +54,7 @@ const full: ScoreInput = {
   categoryId: "c1",
   coverImageUrl: "https://x/cover.webp",
   coverImageAlt: "Lễ tân đón khách tại quầy",
+  pillar: false,
   authorHasProfile: true,
   translationInSync: true,
   siteHost: "www.qub-x.com",
@@ -64,7 +66,10 @@ check("keyword matching ignores case", earned(full, "keywordInTitle") === 1 && e
 check("internal links: relative and same-site count, other sites do not", scoreArticle(full).checks.find((c) => c.id === "internalLinks")!.vars.n === 2);
 check("one internal link gives half the points", earned({ ...full, html: '<p><a href="/vi/pricing">giá</a></p>' }, "internalLinks") === 0.5);
 check("an image without alt text fails its check", earned({ ...full, html: full.html + '<img src="https://x/b.webp" alt="">' }, "imagesAlt") === 0);
-check("600–999 words give half the points for length", earned({ ...full, html: paragraph(140).repeat(5) }, "wordCount") === 0.5);
+check("840 words are enough for a supporting article", earned({ ...full, html: paragraph(140).repeat(6) }, "wordCount") === 1);
+check("…but give a pillar article half the points: it covers a whole topic", earned({ ...full, pillar: true, html: paragraph(140).repeat(6) }, "wordCount") === 0.5);
+check("a supporting article under 600 words gets half, under 360 none", earned({ ...full, html: paragraph(140).repeat(3) }, "wordCount") === 0.5 && earned({ ...full, html: paragraph(140).repeat(2) }, "wordCount") === 0);
+check("the check says which length it asked for", scoreArticle({ ...full, pillar: true }).checks.find((c) => c.id === "wordCount")!.vars.min === 1200);
 check("a paragraph over 150 words fails the short-paragraph check", earned({ ...full, html: full.html + paragraph(200) }, "shortParagraphs") === 0);
 check("an SEO title over 60 characters fails, the title is used when it is empty", earned({ ...full, metaTitle: "x".repeat(61) }, "seoTitleLength") === 0 && earned({ ...full, metaTitle: "" }, "seoTitleLength") === 1);
 check("without a keyword every keyword check fails", ["keywordSet", "keywordInTitle", "keywordInSlug", "keywordInIntro"].every((id) => earned({ ...full, focusKeyword: "" }, id) === 0));

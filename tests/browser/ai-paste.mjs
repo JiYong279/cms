@@ -118,6 +118,10 @@ try {
   await page.waitForSelector('[role="dialog"]', { visible: true });
   await page.click('[role="dialog"] input[value="qubx"]');
   await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click("button::-p-text(Tạo bài cho Qub-X)")]);
+  // A new article opens with the AI dialog; this test goes on without it.
+  await page.waitForSelector('[role="dialog"]', { visible: true });
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[role="dialog"]', { hidden: true });
   postId = page.url().match(/posts\/([0-9a-f-]{36})/)?.[1];
   await page.waitForSelector(".ProseMirror");
 

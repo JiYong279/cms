@@ -9,6 +9,7 @@ import { describeActivity } from "@/lib/activity-text";
 import { requireUser } from "@/lib/auth";
 import { ROLES, can, canDeletePost, canEditPost, canEditTranslation } from "@/lib/permissions";
 import { aiConfigured } from "@/lib/ai";
+import { getLinkTargets } from "@/lib/link-targets";
 import { LOCALES, isStale, viewOrigin } from "@/lib/posts";
 import { PostEditor, type LocaleTab } from "./post-editor";
 
@@ -93,6 +94,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
         id: post.id,
         categoryId: post.categoryId,
         featured: post.featured,
+        pillar: post.pillar,
         coverImageUrl: post.coverImageUrl,
       }}
       locale={locale}
@@ -103,6 +105,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
         id: post.site.id,
         name: post.site.name,
         baseUrl: post.site.baseUrl,
+        brief: post.site.contentBrief,
         viewOrigin: viewOrigin(post.site),
         blogPath: post.site.blogPaths[locale],
       }}
@@ -117,7 +120,8 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
       locked={!canEditTranslation(user, translation?.status ?? null)}
       canDelete={canDeletePost(user, post, post.translations.map((tr) => tr.status))}
       aiEnabled={aiConfigured()}
-      openAi={ai === "translate" ? "translate" : null}
+      linkTargets={await getLinkTargets({ siteId: post.siteId, locale, excludePostId: post.id, categoryId: post.categoryId })}
+      openAi={ai === "translate" || ai === "draft" ? ai : null}
       aiEngine={engine === "own" || engine === "builtin" ? engine : null}
       authorHasProfile={authorHasProfile}
       timeZone={await getTimeZone()}

@@ -9,7 +9,7 @@ import { getLang, getT, getTimeZone } from "@/i18n/server";
 import { requireUser } from "@/lib/auth";
 import { can, canDeletePost } from "@/lib/permissions";
 import { LOCALES, isStale, slugify, viewOrigin } from "@/lib/posts";
-import { scoreArticle } from "@/lib/seo-score";
+import { scoreVersion } from "@/lib/article-score";
 import { publishDuePosts } from "@/lib/scheduled";
 import { cn } from "@/lib/utils";
 import { NewPostButton } from "./new-post-button";
@@ -119,30 +119,12 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
       author: post.author?.name ?? null,
       locales: LOCALES.map((l) => {
         const tr = post.translations.find((x) => x.locale === l);
-        const other = post.translations.find((x) => x.locale !== l);
-        const author = post.authorId ? profiles.get(post.authorId) : undefined;
         return {
           locale: l,
           href: `/admin/posts/${post.id}?locale=${l}`,
           status: tr?.status ?? null,
           stale: !!tr && isStale(tr, post.translations),
-          score: tr
-            ? scoreArticle({
-                title: tr.title,
-                metaTitle: tr.metaTitle,
-                excerpt: tr.excerpt,
-                metaDescription: tr.metaDescription,
-                focusKeyword: tr.focusKeyword,
-                slug: tr.slug,
-                html: tr.contentHtml,
-                categoryId: post.categoryId,
-                coverImageUrl: post.coverImageUrl,
-                coverImageAlt: tr.coverImageAlt,
-                authorHasProfile: !!(author?.jobTitles[l]?.trim() || author?.bios[l]?.trim()),
-                translationInSync: !!other && !isStale(tr, post.translations) && !isStale(other, post.translations),
-                siteHost: new URL(post.site.baseUrl).host,
-              }).score
-            : null,
+          score: tr ? scoreVersion(post, tr, post.authorId ? profiles.get(post.authorId) : undefined).score : null,
         };
       }),
       publicUrl:

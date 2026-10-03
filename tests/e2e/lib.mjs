@@ -83,7 +83,7 @@ export function check(label, ok, detail = "") {
 export const failed = () => failures;
 export const has = (res, text) => res.text.includes(text);
 export const message = (res) => (res.text.match(/role="(?:alert|status)"[^>]*>(?:<svg[\s\S]*?<\/svg>)?([^<]*)/) ?? [])[1];
-export const signedIn = (res) => res.status === 303 && /\/admin(\/account\?weak=1)?$/.test(res.location ?? "");
+export const signedIn = (res) => res.status === 303 && /\/admin\/(overview|account\?weak=1)$/.test(res.location ?? "");
 
 /** Deletes articles for good: to the trash first, then out of it. */
 export async function destroyPosts(client, ids) {
@@ -99,4 +99,21 @@ export async function somePublishedPost() {
   const { posts } = await res.json();
   if (!posts.length) throw new Error("No published Qub-X article: run npm run db:import-qubx -- --replace");
   return posts[0];
+}
+
+const BRIEF_FIELDS = ["audience", "goal", "offering", "voice", "avoid", "framework", "notes"];
+const unescape = (s) => s.replaceAll("&lt;", "<").replaceAll("&gt;", ">").replaceAll("&quot;", '"').replaceAll("&#x27;", "'").replaceAll("&amp;", "&");
+
+/** A website's content brief and weekly target as saved now (read from its edit form), to put back after a test. */
+export async function readBrief(client, siteId) {
+  const html = (await client.req(`/admin/overview?site=${siteId}&edit=brief`)).text;
+  const brief = Object.fromEntries(BRIEF_FIELDS.map((f) => [f, unescape(html.match(new RegExp(`<textarea[^>]*name="${f}"[^>]*>([\\s\\S]*?)</textarea>`))?.[1] ?? "")]));
+  const target = html.match(/name="postsPerWeek"[^>]*value="(\d+)"|value="(\d+)"[^>]*name="postsPerWeek"/)?.slice(1).find(Boolean);
+  return { siteId, brief, postsPerWeek: target ? Number(target) : null };
+}
+
+/** Saves a website's content brief (as returned by readBrief, or a new one). */
+export async function writeBrief(client, value) {
+  await client.req(`/admin/overview?site=${value.siteId}`);
+  return client.call(`/admin/overview?site=${value.siteId}`, "saveBrief", [value]);
 }

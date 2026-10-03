@@ -4,7 +4,7 @@
 //   ANTHROPIC_API_KEY=fake ANTHROPIC_BASE_URL=http://localhost:3999, then: npm run test:ai
 import fs from "node:fs";
 import puppeteer from "puppeteer-core";
-import { ADMIN, CMS, Client, destroyPosts } from "../e2e/lib.mjs";
+import { ADMIN, CMS, Client, destroyPosts, readBrief, writeBrief } from "../e2e/lib.mjs";
 import { requests, startFakeAnthropic } from "../ai/fake-anthropic.mjs";
 
 const OUT = new URL("./screenshots/", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
@@ -35,6 +35,10 @@ page.on("pageerror", (e) => errors.push(`pageerror: ${e.message}`));
 page.on("console", (m) => m.type() === "error" && errors.push(`console: ${m.text()}`));
 page.on("dialog", (d) => d.accept());
 let postId;
+/** The brief before step 6 changed it, to put back. */
+let briefBefore = null;
+/** The uncategorised article step 7 sorts. */
+let extraId = null;
 
 const editorState = () =>
   page.evaluate(() => {
@@ -80,6 +84,10 @@ try {
   await page.waitForSelector('[role="dialog"]', { visible: true });
   await page.click('[role="dialog"] input[value="qubx"]');
   await Promise.all([page.waitForNavigation({ waitUntil: "networkidle0" }), page.click("button::-p-text(Tạo bài cho Qub-X)")]);
+  // A new article opens with the AI dialog; this test goes on without it.
+  await page.waitForSelector('[role="dialog"]', { visible: true });
+  await page.keyboard.press("Escape");
+  await page.waitForSelector('[role="dialog"]', { hidden: true });
   postId = page.url().match(/posts\/([0-9a-f-]{36})/)?.[1];
   await page.waitForSelector(".ProseMirror");
 
@@ -99,7 +107,12 @@ try {
   const draftRequest = requests.at(-1);
   expect("the prompt carries the topic, key points and language", /Topic: phần mềm EMR/.test(draftRequest.messages[0].content) && /Chi phí/.test(draftRequest.messages[0].content) && /Write in Vietnamese/.test(draftRequest.system));
   expect("the built-in AI must link its sources, official first, and never invent links", ["Sources (required)", "moh.gov.vn", "leave the fact out"].every((s) => draftRequest.system.includes(s)));
-  expect("the model must answer through the article tool", draftRequest.tool_choice?.name === "article" && draftRequest.stream === true);
+  expect("the built-in AI writes for search: answering opening, question headings, FAQ", ["Optimise for Google", "first sentence answers", "Frequently asked questions"].every((s) => draftRequest.system.includes(s)));
+  expect(
+    "the draft gets the website's live articles to link to, by their public address",
+    /Internal links: add 2–3 links/.test(draftRequest.messages[0].content) && /— https:\/\/www\.qub-x\.com\/vi\/blog\//.test(draftRequest.messages[0].content),
+  );
+  expect("the model must answer through the article tool",draftRequest.tool_choice?.name === "article" && draftRequest.stream === true);
   const offered = draftRequest.tools[0].input_schema.properties.category?.enum ?? [];
   const picked = await page.$$eval("aside select", (selects) => {
     const s = selects.find((x) => [...x.options].some((o) => o.text === "Chưa phân loại"));
@@ -161,7 +174,9 @@ try {
   expect("the built-in AI's SEO title goes into the editor", (await page.$eval("#field-meta-title", (e) => e.value)).startsWith("[AI] "));
   expect("activity log records the AI SEO fix", (await admin.req("/admin/activity")).text.includes("Dùng AI sửa phần SEO bản VI"));
 
-  // 6. "Plan with AI" on the calendar, with the built-in AI.
+  // 6. "Plan with AI" on the calendar, with the built-in AI, carrying the team's brief.
+  briefBefore = await readBrief(admin, "qubx");
+  await writeBrief(admin, { ...briefBefore, brief: { ...briefBefore.brief, audience: "Chủ chuỗi nha khoa thử AI" } });
   await page.goto(`${CMS}/admin/calendar?site=qubx`, { waitUntil: "networkidle0" });
   await page.click("[data-plan-ai]");
   await page.waitForSelector("[data-plan-dialog]", { visible: true });
@@ -174,8 +189,58 @@ try {
   await page.waitForSelector("[data-plan-review]", { timeout: 20000 });
   const planRequest = requests.at(-1);
   expect("the plan request asks for 3 articles through the content_plan tool", planRequest.tool_choice?.name === "content_plan" && planRequest.messages[0].content.includes("một cụm 3 bài"));
+  expect("the plan request carries the team's brief", planRequest.messages[0].content.includes("Readers: Chủ chuỗi nha khoa thử AI"));
   expect("the built-in AI's 3 ideas are shown for review", (await page.$$("[data-plan-review] [data-idea]")).length === 3);
   expect("activity log records the AI plan", (await admin.req("/admin/activity")).text.includes("Dùng AI lên kế hoạch 3 bài"));
+  await page.keyboard.press("Escape");
+
+  // 7. Categories with the built-in AI: a proposal to review, and an uncategorised article sorted.
+  const extra = await admin.submit("/admin", 'name="siteId"', { siteId: "qubx" });
+  extraId = extra.location?.match(/posts\/([0-9a-f-]{36})/)?.[1] ?? null;
+  await admin.call(`/admin/posts/${extraId}?locale=vi`, "savePost", [
+    {
+      postId: extraId, locale: "vi", status: "draft", title: "[AI] Bài chưa xếp", slug: "", excerpt: "", contentJson: null, contentHtml: "<p>x</p>",
+      metaTitle: "", metaDescription: "", focusKeyword: "", noindex: false, scheduledAt: null, categoryId: null, featured: false, coverImageUrl: "",
+    },
+  ]);
+  const inQubx = (selector) =>
+    page.evaluate((s) => [...document.querySelectorAll("section")].find((x) => x.querySelector("h2")?.textContent === "Qub-X")?.querySelector(s)?.click(), selector);
+  await page.goto(`${CMS}/admin/categories`, { waitUntil: "networkidle0" });
+  await inQubx("[data-suggest-categories]");
+  await page.waitForSelector("[data-suggest-dialog]", { visible: true });
+  await page.click("[data-suggest-dialog] button::-p-text(Nhờ AI đề xuất)");
+  await page.waitForSelector("[data-suggest-review]", { timeout: 20000 });
+  const categoryRequest = requests.at(-1);
+  expect(
+    "the category request goes through the categories tool, with the brief and the categories",
+    categoryRequest.tool_choice?.name === "categories" && categoryRequest.messages[0].content.includes("Readers: Chủ chuỗi nha khoa thử AI") && / \(\d+ bài\)$/m.test(categoryRequest.messages[0].content),
+  );
+  const kinds = await page.$$eval("[data-suggest-review] [data-idea-kind]", (els) => els.map((e) => e.getAttribute("data-idea-kind")).join());
+  expect("the proposal is reviewed: a kept category and a new one", kinds === "keep,new", kinds);
+  await page.keyboard.press("Escape");
+  await inQubx("[data-place-articles]");
+  await page.waitForSelector("[data-place-dialog]", { visible: true });
+  await page.click("[data-place-dialog] button::-p-text(Nhờ AI xếp bài)");
+  await page.waitForSelector("[data-place-review]", { timeout: 20000 });
+  expect("the placement request goes through the placements tool", requests.at(-1).tool_choice?.name === "placements");
+  expect("the uncategorised article gets a category to review", !!(await page.$eval(`[data-place-row="${extraId}"] select`, (s) => s.value)));
+  const categoryLog = (await admin.req("/admin/activity")).text;
+  expect("activity log records both AI runs", categoryLog.includes("Dùng AI đề xuất 2 danh mục cho Qub-X") && categoryLog.includes("Dùng AI xếp"));
+  await page.keyboard.press("Escape");
+
+  // 8. The choice between "Your Claude" and the built-in AI is remembered from one dialog to the next.
+  await inQubx("[data-suggest-categories]");
+  await page.waitForSelector("[data-suggest-dialog]", { visible: true });
+  await page.click('[data-suggest-dialog] [role="radio"]::-p-text(Claude của bạn)');
+  await page.keyboard.press("Escape");
+  await page.goto(`${CMS}/admin/calendar?site=qubx`, { waitUntil: "networkidle0" });
+  await page.click("[data-plan-ai]");
+  await page.waitForSelector("[data-plan-dialog]", { visible: true });
+  const remembered = await page.$eval('[data-plan-dialog] [role="radio"][aria-checked="true"]', (b) => b.textContent);
+  expect("another AI dialog opens on the choice made last time", remembered === "Claude của bạn", remembered);
+  // Back to the built-in AI for the next run.
+  await page.click('[data-plan-dialog] [role="radio"]::-p-text(AI tích hợp)');
+  await page.keyboard.press("Escape");
 } catch (error) {
   failures++;
   console.log("ERROR:", error.message);
@@ -184,11 +249,10 @@ try {
   expect("no errors in the browser console", errors.length === 0, errors.slice(0, 5).join(" | "));
   await browser.close();
   fake.close();
-  if (postId) {
-    const admin = new Client();
-    await admin.login(ADMIN.email, ADMIN.password);
-    await destroyPosts(admin, [postId]);
-  }
+  const admin = new Client();
+  await admin.login(ADMIN.email, ADMIN.password);
+  await destroyPosts(admin, [postId, extraId].filter(Boolean));
+  if (briefBefore) await writeBrief(admin, briefBefore);
   console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");
   process.exit(failures ? 1 : 0);
 }
