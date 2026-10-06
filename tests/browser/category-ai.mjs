@@ -104,9 +104,12 @@ try {
   const kinds = await page.$$eval("[data-suggest-review] [data-idea-kind]", (els) => els.map((e) => e.getAttribute("data-idea-kind")).join());
   expect("the answer is reviewed as rename, new and merge", kinds === "rename,new,merge", kinds);
   expect("categories the AI leaves out are pointed out", existing.length < 4 || (await page.$eval("[data-unused]", (e) => e.textContent ?? "")).includes(existing[3]));
-  // Only the new category is applied: untick the rename.
-  await page.click('[data-idea-kind="rename"] input[type="checkbox"]');
-  expect("the apply button counts the ticked changes", (await page.$eval("[data-suggest-dialog] [data-apply]", (b) => b.textContent)).includes("1 thay đổi"));
+  // Renaming a category moves its articles to another topic name: never ticked for the team.
+  const renameTicked = await page.$eval('[data-idea-kind="rename"] input[type="checkbox"]', (el) => el.checked);
+  expect("a rename of an existing category is not ticked by default", renameTicked === false);
+  const warning = await page.$eval('[data-idea-kind="rename"]', (el) => el.querySelector("[data-rename-warning]")?.textContent ?? "");
+  expect("a rename warns how many articles it touches", /bài/.test(warning) || !warning, warning);
+  expect("the apply button counts only the new category", (await page.$eval("[data-suggest-dialog] [data-apply]", (b) => b.textContent)).includes("1 thay đổi"));
   await page.screenshot({ path: `${OUT}category-ai-suggest.png` });
   await page.click("[data-suggest-dialog] [data-apply]");
   await page.waitForFunction(() => document.querySelector("[data-suggest-dialog] [role=status]")?.textContent?.includes("Đã tạo 1"), { timeout: 10000 });
