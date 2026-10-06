@@ -77,6 +77,8 @@ s = await writer.call("/admin/calendar", "planPost", [{ postId, assigneeId: admi
 check("writer cannot assign an article", s.ok === false && /Chỉ biên tập viên và quản trị viên được giao bài/.test(s.error), JSON.stringify(s));
 s = await writer.call("/admin/calendar", "planPost", [{ postId: others.id, plannedFor: "2031-01-15" }]);
 check("writer cannot plan others' post", s.ok === false && /không có quyền sửa/.test(s.error), JSON.stringify(s));
+s = await writer.call("/admin/calendar", "reschedulePost", [{ postId, from: "2031-01-15", to: "2031-01-16" }]);
+check("writer cannot move when an article is published", s.ok === false && /không có quyền đổi lịch đăng/.test(s.error), JSON.stringify(s));
 r = await writer.req("/admin/overview?site=qubx");
 check("writer reads the content overview but cannot edit the brief", r.status === 200 && has(r, "Chỉ biên tập viên và quản trị viên sửa được phần này") && !has(r, "data-brief-edit"));
 const brief = { audience: "Người viết đổi thử", goal: "", offering: "", voice: "", avoid: "", notes: "" };

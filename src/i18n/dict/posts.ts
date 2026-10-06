@@ -60,7 +60,7 @@ const vi = {
   calendar: {
     metaTitle: "Lịch biên tập",
     title: "Lịch biên tập",
-    subtitle: "Bài đã và sẽ đăng theo ngày. Kéo bài nháp sang ngày khác để đổi ngày dự kiến đăng.",
+    subtitle: "Bài đã và sẽ đăng theo ngày. Kéo bài nháp hoặc bài hẹn giờ sang ngày khác để đổi ngày đăng; bài đã đăng giữ nguyên ngày.",
     subtitleOwn: "Các bài của bạn theo ngày. Kéo bài nháp sang ngày khác để đổi ngày dự kiến đăng.",
     previous: "Tháng trước",
     next: "Tháng sau",
@@ -77,6 +77,10 @@ const vi = {
     assignee: "Phụ trách: {name}",
     moved: "Đã dời “{title}” sang {date}.",
     unplannedDone: "Đã bỏ ngày dự kiến của “{title}”.",
+    rescheduled: "Đã dời lịch đăng “{title}” sang {date}, vẫn lúc {time}.",
+    lockedPublished: "“{title}” đã đăng nên không kéo sang ngày khác được. Muốn sửa ngày hiện trên bài, mở bài và sửa ô “Ngày đăng”.",
+    lockedScheduled: "Bạn không có quyền đổi lịch đăng của “{title}”.",
+    scheduledNeedsDay: "Bài hẹn giờ phải có ngày đăng. Muốn huỷ hẹn giờ, mở bài và chuyển về bản nháp.",
     emptyMonth: "Tháng này chưa có bài nào.",
     legend: "Chú thích",
   },
@@ -156,6 +160,9 @@ const vi = {
     unknownImages: "Bài còn {n} ảnh chưa rõ quyền sử dụng. Đổi ảnh khác hoặc xác nhận đã được phép trước khi đăng.",
     notAllowedAssign: "Chỉ biên tập viên và quản trị viên được giao bài.",
     badAssignee: "Chỉ giao được cho biên tập viên hoặc quản trị viên đang hoạt động.",
+    notAllowedReschedule: "Bạn không có quyền đổi lịch đăng bài.",
+    notScheduled: "Bài không còn hẹn giờ vào ngày đó (có thể vừa được đăng). Tải lại trang để xem lịch mới nhất.",
+    pastSchedule: "Không dời được lịch đăng sang thời điểm đã qua. Hãy chọn một ngày sau.",
   },
 };
 
@@ -223,7 +230,7 @@ const en: PostsDict = {
   calendar: {
     metaTitle: "Editorial calendar",
     title: "Editorial calendar",
-    subtitle: "Articles published and coming up, by day. Drag a draft to another day to change when it is planned.",
+    subtitle: "Articles published and coming up, by day. Drag a draft or a scheduled article to another day to change its day; published articles keep theirs.",
     subtitleOwn: "Your articles by day. Drag a draft to another day to change when it is planned.",
     previous: "Previous month",
     next: "Next month",
@@ -240,6 +247,10 @@ const en: PostsDict = {
     assignee: "Looked after by {name}",
     moved: "Moved “{title}” to {date}.",
     unplannedDone: "Removed the planned day of “{title}”.",
+    rescheduled: "Moved the publishing of “{title}” to {date}, still at {time}.",
+    lockedPublished: "“{title}” is already published, so it cannot be dragged to another day. To change the date shown on it, open it and edit “Publication date”.",
+    lockedScheduled: "You are not allowed to change when “{title}” is published.",
+    scheduledNeedsDay: "A scheduled article needs a publishing day. To cancel the schedule, open it and turn it back into a draft.",
     emptyMonth: "No articles this month yet.",
     legend: "Legend",
   },
@@ -319,6 +330,9 @@ const en: PostsDict = {
     unknownImages: "{n} images still have unknown rights. Replace them, or confirm we may use them, before publishing.",
     notAllowedAssign: "Only editors and admins can assign articles.",
     badAssignee: "Articles can only be assigned to an active editor or admin.",
+    notAllowedReschedule: "You are not allowed to change when articles are published.",
+    notScheduled: "The article is no longer scheduled for that day (it may just have gone out). Reload the page to see the latest calendar.",
+    pastSchedule: "Publishing cannot be moved to a time that has passed. Pick a later day.",
   },
 };
 
