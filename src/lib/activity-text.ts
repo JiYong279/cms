@@ -10,7 +10,8 @@ import { fmt, type Dict } from "@/i18n";
  *   post.status_changed / post.unpublished   { locale, status }
  *   post.synced                              { locale, source }
  *   post.purged                              { days }
- *   post.planned / post.rescheduled          { date: "YYYY-MM-DD" }
+ *   post.planned                             { date: "YYYY-MM-DD" }
+ *   post.rescheduled                         { date: "YYYY-MM-DD", time?: "HH:mm" }
  *   post.assigned                            { name }
  *   post.ai_planned                          { topic, n, name }
  *   post.ai_categorized / category.ai_proposed   { n, name }   (name: the website)
@@ -49,6 +50,9 @@ export function describeActivity(entry: Entry, t: Dict): string {
   const date = str(meta.date);
   if (date && /^\d{4}-\d{2}-\d{2}$/.test(date)) {
     vars.date = new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "medium", timeZone: "UTC" }).format(new Date(`${date}T00:00:00Z`));
+    // A time of day (HH:mm, as recorded) goes with the day when the entry has one.
+    const time = str(meta.time);
+    if (time && /^\d{2}:\d{2}$/.test(time)) vars.date = fmt(t.activity.dateAtTime, { date: vars.date, time });
   }
   const n = str(meta.n);
   if (n) vars.n = n;
