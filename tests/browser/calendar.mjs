@@ -153,6 +153,34 @@ try {
   let s = await admin.call("/admin/calendar", "reschedulePost", [{ postId: scheduledId, from: TO, to: past }]);
   expect("the server refuses a day that has passed", s.ok === false && /thời điểm đã qua/.test(s.error), JSON.stringify(s));
 
+  // The clock on a scheduled card changes its date and time.
+  await page.goto(scheduleUrl, { waitUntil: "networkidle0" });
+  await page.click(`[data-retime="${scheduledId}"]`);
+  await page.waitForSelector("[data-schedule-dialog]", { visible: true });
+  const input = "[data-schedule-dialog] input[type='datetime-local']";
+  expect("the clock opens its current date and time", (await page.$eval(input, (el) => el.value)) === `${TO}T09:30`, await page.$eval(input, (el) => el.value));
+  await page.$eval(
+    input,
+    (el, v) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value").set.call(el, v);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+    `${TO}T15:45`,
+  );
+  await shot(page, "calendar-06-change-time");
+  await page.click("[data-schedule-dialog] button::-p-text(Lưu giờ đăng)");
+  await waitForStatus("Đã đổi lịch đăng");
+  expect("saving confirms the new time", (await statusText()).includes("15:45"), await statusText());
+  await page.reload({ waitUntil: "networkidle0" });
+  const retimed = await page.$(`[data-calendar-day="${TO}"] ${scheduled}`);
+  expect("after reloading it is scheduled at the new time", !!retimed && (await retimed.evaluate((el) => el.textContent ?? "")).includes("15:45"));
+  s = await admin.call("/admin/calendar", "setScheduleTime", [{ postId: scheduledId, from: TO, at: new Date(Date.now() - 3_600_000).toISOString() }]);
+  expect("the server refuses a time that has passed", s.ok === false && /thời điểm đã qua/.test(s.error), JSON.stringify(s));
+  s = await admin.call("/admin/calendar", "setScheduleTime", [{ postId: publishedId, from: today, at: `${TO}T03:00:00.000Z` }]);
+  expect("…and never changes a published article", s.ok === false, JSON.stringify(s));
+  const log = await admin.req("/admin/activity");
+  expect("the activity log says the new day and time", log.text.includes("lúc 15:45"));
+
   // A published article stays on its day and says how to change the date readers see.
   await page.goto(calendarUrl, { waitUntil: "networkidle0" });
   const published = `[data-post-id="${publishedId}"]`;

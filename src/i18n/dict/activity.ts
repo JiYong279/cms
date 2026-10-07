@@ -60,6 +60,8 @@ const vi = {
     unlock: "kích hoạt lại tài khoản",
     rename: "đổi tên thành {to}",
   },
+  /** A day with its time of day, in an entry's text. */
+  dateAtTime: "{date} lúc {time}",
   historyTitle: "Lịch sử",
   historyHint: "Ai đã làm gì với bài này. Xem toàn bộ ở Nhật ký hoạt động.",
   historyEmpty: "Chưa có hoạt động nào.",
@@ -128,6 +130,7 @@ const en: ActivityDict = {
     unlock: "account enabled again",
     rename: "renamed to {to}",
   },
+  dateAtTime: "{date} at {time}",
   historyTitle: "History",
   historyHint: "Who did what to this article. See everything in the activity log.",
   historyEmpty: "No activity yet.",
