@@ -12,15 +12,26 @@ import { LOCALES, isStale, slugify, viewOrigin } from "@/lib/posts";
 import { scoreVersion } from "@/lib/article-score";
 import { publishDuePosts } from "@/lib/scheduled";
 import { cn } from "@/lib/utils";
+import { LocaleStatusSelect } from "./locale-status-select";
 import { NewPostButton } from "./new-post-button";
-import { PostTable, type PostRow } from "./post-table";
+import {
+  SORT_KEYS,
+  getLocaleFilter,
+  getNextSort,
+  getSort,
+  getSortQuery,
+  isLocaleMatch,
+  sortArticles,
+  type SortKey,
+} from "./post-list";
+import { PostTable, type PostRow, type SortLinks } from "./post-table";
 
 export async function generateMetadata() {
   const t = await getT();
   return { title: `${t.posts.metaTitle} · ${t.common.appName}` };
 }
 
-const VIEWS = ["all", "published", "draft", "in_review", "scheduled", "trash"] as const;
+const VIEWS = ["all", "published", "draft", "in_review", "scheduled", "stale", "archived", "trash"] as const;
 type View = (typeof VIEWS)[number];
 
 function relativeTime(date: Date, t: Dict, timeZone: string) {
@@ -73,7 +84,10 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
   // "status" is the older name of the view parameter; links using it keep working.
   const view: View = VIEWS.find((v) => v === (pick(params.view) ?? pick(params.status))) ?? "all";
   const q = pick(params.q)?.trim();
-  const filters = { site, view, q };
+  const sort = getSort(pick(params.sort), pick(params.dir));
+  const vi = getLocaleFilter(pick(params.vi));
+  const en = getLocaleFilter(pick(params.en));
+  const filters = { site, view, q, vi, en, ...getSortQuery(sort) };
 
   const everything = await db.query.posts.findMany({
     where: (p, { and, eq }) =>
@@ -84,20 +98,38 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
   const active = everything.filter((p) => !p.deletedAt);
   const trashed = everything.filter((p) => p.deletedAt);
   const hasStatus = (p: (typeof everything)[number], s: PostStatus) => p.translations.some((tr) => tr.status === s);
-  const counts: Record<View, number> = {
-    all: active.length,
-    published: active.filter((p) => hasStatus(p, "published")).length,
-    draft: active.filter((p) => hasStatus(p, "draft")).length,
-    in_review: active.filter((p) => hasStatus(p, "in_review")).length,
-    scheduled: active.filter((p) => hasStatus(p, "scheduled")).length,
-    trash: trashed.length,
-  };
+  const isStalePost = (p: (typeof everything)[number]) => p.translations.some((tr) => isStale(tr, p.translations));
+  const inView = (p: (typeof everything)[number], v: View) =>
+    v === "all" || (v === "stale" ? isStalePost(p) : v !== "trash" && hasStatus(p, v));
+  const counts = Object.fromEntries(
+    VIEWS.map((v) => [v, v === "trash" ? trashed.length : active.filter((p) => inView(p, v)).length]),
+  ) as Record<View, number>;
+  // Archiving is rare: its tab shows only when there is something in it.
+  const views = VIEWS.filter((v) => v !== "archived" || counts.archived > 0 || view === "archived");
 
   // Search ignores accents, so "toi uu" finds "tối ưu".
   const needle = q ? slugify(q) : "";
-  const shown = (view === "trash" ? trashed : view === "all" ? active : active.filter((p) => hasStatus(p, view))).filter(
-    (p) => !needle || p.translations.some((tr) => slugify(tr.title).includes(needle)),
+  const matching = (view === "trash" ? trashed : active.filter((p) => inView(p, view))).filter(
+    (p) =>
+      (!needle || p.translations.some((tr) => slugify(tr.title).includes(needle))) &&
+      isLocaleMatch(p.translations, "vi", vi) &&
+      isLocaleMatch(p.translations, "en", en),
   );
+  const mainOf = (p: (typeof everything)[number]) =>
+    p.translations.find((tr) => tr.locale === p.site.defaultLocale) ?? p.translations[0];
+  const shown = sortArticles(
+    matching,
+    sort,
+    // In the trash, the date column is when the article was deleted.
+    (p) => ({ title: mainOf(p)?.title ?? "", versions: p.translations, at: (view === "trash" && p.deletedAt) || p.updatedAt }),
+    new Intl.Collator(t.common.dateLocale, { sensitivity: "base", numeric: true }),
+  );
+  const sortLinks = Object.fromEntries(
+    SORT_KEYS.map((key: SortKey) => [
+      key,
+      { href: hrefWith(filters, getSortQuery(getNextSort(sort, key))), dir: sort.key === key ? sort.dir : null },
+    ]),
+  ) as SortLinks;
 
   const people = await db
     .select({ id: schema.users.id, name: schema.users.name, jobTitles: schema.users.jobTitles, bios: schema.users.bios })
@@ -105,7 +137,7 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
   const userNames = new Map(people.map((u) => [u.id, u.name]));
   const profiles = new Map(people.map((u) => [u.id, u]));
   const rows: PostRow[] = shown.map((post) => {
-    const main = post.translations.find((tr) => tr.locale === post.site.defaultLocale) ?? post.translations[0];
+    const main = mainOf(post);
     const locale = main?.locale ?? post.site.defaultLocale;
     return {
       id: post.id,
@@ -140,15 +172,19 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
   // Cards count articles, like the tabs below; the line underneath splits them by language.
   const byLocale = (match: (tr: (typeof active)[number]["translations"][number], all: (typeof active)[number]["translations"]) => boolean) =>
     LOCALES.map((l) => `${l.toUpperCase()} ${active.filter((p) => p.translations.some((tr) => tr.locale === l && match(tr, p.translations))).length}`).join(" · ");
-  const staleArticles = active.filter((p) => p.translations.some((tr) => isStale(tr, p.translations))).length;
   const stats = [
     { label: t.posts.stats.published, value: counts.published, detail: byLocale((tr) => tr.status === "published"), icon: CheckCircle2, tone: "text-emerald-600 bg-emerald-50", view: "published" },
     { label: t.posts.stats.in_review, value: counts.in_review, detail: byLocale((tr) => tr.status === "in_review"), icon: Clock, tone: "text-amber-600 bg-amber-50", view: "in_review" },
     { label: t.posts.stats.scheduled, value: counts.scheduled, detail: byLocale((tr) => tr.status === "scheduled"), icon: CalendarClock, tone: "text-sky-600 bg-sky-50", view: "scheduled" },
-    { label: t.posts.stats.stale, value: staleArticles, detail: byLocale((tr, all) => isStale(tr, all)), icon: AlertTriangle, tone: "text-orange-600 bg-orange-50", view: undefined },
+    { label: t.posts.stats.stale, value: counts.stale, detail: byLocale((tr, all) => isStale(tr, all)), icon: AlertTriangle, tone: "text-orange-600 bg-orange-50", view: "stale" },
   ] as const;
 
-  const inFilter = !!q || view !== "all";
+  const inFilter = !!q || view !== "all" || !!vi || !!en;
+  const statusOptions = [
+    { value: "", label: t.posts.filters.anyStatus },
+    { value: "none", label: t.posts.filters.notWritten },
+    ...(["draft", "in_review", "scheduled", "published", "archived"] as const).map((s) => ({ value: s, label: t.common.status[s] })),
+  ];
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-8 sm:py-10">
@@ -169,39 +205,30 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
       </header>
 
       <section className="mt-8 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        {stats.map((s) => {
-          const body = (
-            <>
-              <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", s.tone)}>
-                <s.icon className="size-4" />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-2xl font-semibold tabular-nums">{s.value}</span>
-                <span className="block text-xs text-zinc-500">{s.label}</span>
-                <span className="block text-[11px] tabular-nums text-zinc-400">{s.detail}</span>
-              </span>
-            </>
-          );
-          const cls = cn(
-            "flex items-center gap-3 rounded-xl border bg-white p-4 shadow-sm transition",
-            s.view && view === s.view ? "border-brand-light ring-2 ring-brand-tint" : "border-zinc-200",
-            s.view && "hover:border-zinc-300",
-          );
-          return s.view ? (
-            <Link key={s.label} href={hrefWith(filters, { view: view === s.view ? undefined : s.view })} className={cls}>
-              {body}
-            </Link>
-          ) : (
-            <div key={s.label} className={cls}>
-              {body}
-            </div>
-          );
-        })}
+        {stats.map((s) => (
+          <Link
+            key={s.label}
+            href={hrefWith(filters, { view: view === s.view ? undefined : s.view })}
+            className={cn(
+              "flex items-center gap-3 rounded-xl border bg-white p-4 shadow-sm transition hover:border-zinc-300",
+              view === s.view ? "border-brand-light ring-2 ring-brand-tint" : "border-zinc-200",
+            )}
+          >
+            <span className={cn("flex size-9 shrink-0 items-center justify-center rounded-lg", s.tone)}>
+              <s.icon className="size-4" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-2xl font-semibold tabular-nums">{s.value}</span>
+              <span className="block text-xs text-zinc-500">{s.label}</span>
+              <span className="block text-[11px] tabular-nums text-zinc-400">{s.detail}</span>
+            </span>
+          </Link>
+        ))}
       </section>
 
       <section className="mt-6 overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm">
         <nav className="flex gap-1 overflow-x-auto overflow-y-hidden border-b border-zinc-200 px-3" aria-label={t.posts.viewsLabel}>
-          {VIEWS.map((v) => (
+          {views.map((v) => (
             <Link
               key={v}
               href={hrefWith(filters, { view: v })}
@@ -239,9 +266,21 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
               </Link>
             ))}
           </nav>
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t.posts.filters.label}>
+            {LOCALES.map((l) => (
+              <LocaleStatusSelect
+                key={l}
+                name={l}
+                label={fmt(t.posts.filters.version, { locale: l.toUpperCase() })}
+                value={l === "vi" ? vi : en}
+                options={statusOptions}
+              />
+            ))}
+          </div>
           <form className="relative ml-auto w-full sm:w-72" action="/admin">
-            {site && <input type="hidden" name="site" value={site} />}
-            {view !== "all" && <input type="hidden" name="view" value={view} />}
+            {Object.entries({ ...filters, q: undefined, view: view === "all" ? undefined : view }).map(
+              ([name, value]) => value && <input key={name} type="hidden" name={name} value={value} />,
+            )}
             <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-zinc-400" />
             <input
               name="q"
@@ -258,15 +297,32 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
         {q && (
           <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 bg-zinc-50/60 px-4 py-2 text-xs text-zinc-600">
             {t.posts.searching} <span className="rounded-full bg-zinc-200 px-2 py-0.5 font-medium">“{q}”</span>
-            <Link href={hrefWith({ site, view }, {})} className="ml-1 font-medium text-brand hover:text-brand-hover">
+            <Link href={hrefWith(filters, { q: undefined })} className="ml-1 font-medium text-brand hover:text-brand-hover">
               {t.posts.clearSearch}
+            </Link>
+          </div>
+        )}
+        {(vi || en) && (
+          <div className="flex flex-wrap items-center gap-2 border-b border-zinc-100 bg-zinc-50/60 px-4 py-2 text-xs text-zinc-600">
+            {t.posts.filters.active}
+            {([["vi", vi], ["en", en]] as const).map(
+              ([l, f]) =>
+                f && (
+                  <span key={l} className="rounded-full bg-zinc-200 px-2 py-0.5 font-medium">
+                    {l.toUpperCase()}: {statusOptions.find((o) => o.value === f)?.label}
+                  </span>
+                ),
+            )}
+            <Link href={hrefWith(filters, { vi: undefined, en: undefined })} className="ml-1 font-medium text-brand hover:text-brand-hover">
+              {t.posts.filters.clear}
             </Link>
           </div>
         )}
 
         <PostTable
-          key={`${view}-${site ?? ""}-${q ?? ""}`}
+          key={`${view}-${site ?? ""}-${q ?? ""}-${vi ?? ""}-${en ?? ""}-${sort.key}-${sort.dir}`}
           rows={rows}
+          sortLinks={sortLinks}
           trash={view === "trash"}
           canPurge={can(user.role, "posts.deleteAny")}
           emptyTitle={view === "trash" ? t.posts.empty.trashTitle : inFilter ? t.posts.empty.filteredTitle : t.posts.empty.noneTitle}
