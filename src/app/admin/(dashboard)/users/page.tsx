@@ -1,13 +1,14 @@
 import Link from "next/link";
 import type { Metadata } from "next";
 import { asc, count, eq } from "drizzle-orm";
-import { Check, Minus, UserPlus } from "lucide-react";
+import { UserPlus } from "lucide-react";
 import { getDb, schema } from "@/db";
 import { NoAccess } from "@/components/no-access";
 import { getT, getTimeZone } from "@/i18n/server";
 import { requireUser } from "@/lib/auth";
-import { PERMISSIONS, ROLES, ROLE_BADGE, can, type Permission } from "@/lib/permissions";
+import { EDITABLE_PERMISSIONS, EDITABLE_ROLES, ROLE_BADGE, can, type EditableRole, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
+import { RolePermissionsForm } from "./role-permissions-form";
 import { UserRowActions } from "./user-row-actions";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -44,6 +45,10 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/user
     .orderBy(asc(schema.users.createdAt));
   const users = everyone.filter((u) => u.active !== disabledView);
   const counts = { active: everyone.filter((u) => u.active).length, disabled: everyone.filter((u) => !u.active).length };
+  // What editors and writers may do now, with the admin's saved changes (loaded by requireUser).
+  const grants = Object.fromEntries(
+    EDITABLE_ROLES.map((role) => [role, EDITABLE_PERMISSIONS.filter((p) => can(role, p))]),
+  ) as Record<EditableRole, Permission[]>;
   const tabs = [
     { href: "/admin/users", label: t.users.list.tabActive, n: counts.active, current: !disabledView },
     { href: "/admin/users?view=disabled", label: t.users.list.tabDisabled, n: counts.disabled, current: disabledView },
@@ -140,36 +145,7 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/user
       <section className="mt-8">
         <h2 className="font-semibold">{t.users.list.matrixTitle}</h2>
         <p className="mt-1 text-sm text-zinc-500">{t.users.list.matrixSubtitle}</p>
-        <div className="mt-4 overflow-x-auto rounded-xl border border-zinc-200 bg-white shadow-sm">
-          <table className="w-full min-w-[560px] text-left text-sm">
-            <thead className="border-b border-zinc-200 bg-zinc-50 text-xs text-zinc-500">
-              <tr>
-                <th className="px-4 py-3 font-medium">{t.users.list.colPermission}</th>
-                {ROLES.map((r) => (
-                  <th key={r} className="px-4 py-3 text-center font-medium">
-                    {t.common.roles[r]}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-zinc-100">
-              {(Object.keys(PERMISSIONS) as Permission[]).map((p) => (
-                <tr key={p}>
-                  <td className="px-4 py-2.5">{t.common.permissions[p]}</td>
-                  {ROLES.map((r) => (
-                    <td key={r} className="px-4 py-2.5">
-                      {can(r, p) ? (
-                        <Check className="mx-auto size-4 text-emerald-600" aria-label={t.users.list.yes} />
-                      ) : (
-                        <Minus className="mx-auto size-4 text-zinc-300" aria-label={t.users.list.no} />
-                      )}
-                    </td>
-                  ))}
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
+        <RolePermissionsForm grants={grants} />
       </section>
     </div>
   );
