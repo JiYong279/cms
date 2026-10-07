@@ -21,14 +21,15 @@ export function ConfirmPopover({
   hint?: string;
   confirmLabel: string;
   onConfirm: () => void;
-  children: (open: (event: React.MouseEvent<HTMLElement>) => void) => React.ReactNode;
+  /** `open` takes the event of the control it should sit next to: a button's click, a select's change. */
+  children: (open: (event: { currentTarget: Element }) => void) => React.ReactNode;
 }) {
   const { t } = useI18n();
   const [anchor, setAnchor] = useState<Anchor | null>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const titleId = useId();
 
-  function open(event: React.MouseEvent<HTMLElement>) {
+  function open(event: { currentTarget: Element }) {
     const rect = event.currentTarget.getBoundingClientRect();
     // Right-aligned with the button, kept inside the window (the box is w-72 = 288px wide).
     const right = Math.min(Math.max(8, window.innerWidth - rect.right), Math.max(8, window.innerWidth - 288 - 8));

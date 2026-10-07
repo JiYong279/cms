@@ -9,6 +9,7 @@ import { requireUser } from "@/lib/auth";
 import { EDITABLE_PERMISSIONS, EDITABLE_ROLES, ROLE_BADGE, can, type EditableRole, type Permission } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
 import { RolePermissionsForm } from "./role-permissions-form";
+import { UserRoleSelect } from "./user-role-select";
 import { UserRowActions } from "./user-row-actions";
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -111,9 +112,14 @@ export default async function UsersPage({ searchParams }: PageProps<"/admin/user
                   <div className="text-xs text-zinc-500">{u.email}</div>
                 </td>
                 <td className="px-4 py-3">
-                  <span className={cn("rounded-full px-2 py-0.5 text-xs font-medium", ROLE_BADGE[u.role])}>
-                    {t.common.roles[u.role]}
-                  </span>
+                  {u.id === me.id ? (
+                    <span title={t.users.list.ownRole} className={cn("rounded-full px-2 py-0.5 text-xs font-medium", ROLE_BADGE[u.role])}>
+                      {t.common.roles[u.role]}
+                    </span>
+                  ) : (
+                    // Keyed by role: after a change elsewhere (the user's page), the select starts from the saved role.
+                    <UserRoleSelect key={u.role} id={u.id} name={u.name} role={u.role} />
+                  )}
                 </td>
                 <td className="px-4 py-3 text-xs">
                   {u.active ? (

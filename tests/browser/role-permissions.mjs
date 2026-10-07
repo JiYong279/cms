@@ -4,7 +4,7 @@
 import fs from "node:fs";
 import puppeteer from "puppeteer-core";
 import { EDITABLE_PERMISSIONS, isGrantedByDefault } from "../../src/lib/permissions.ts";
-import { ADMIN, CMS, Client } from "../e2e/lib.mjs";
+import { ADMIN, CMS, Client, WRITER } from "../e2e/lib.mjs";
 
 const OUT = new URL("./screenshots/", import.meta.url).pathname.replace(/^\/([A-Z]:)/, "$1");
 fs.mkdirSync(OUT, { recursive: true });
@@ -81,6 +81,31 @@ try {
   await save();
   await page.reload({ waitUntil: "networkidle0" });
   expect("the defaults are back after a reload", !(await isChecked()) && !(await isMarked()));
+
+  // The role column of the list: change someone's role there.
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const writerSelect = await page.evaluateHandle(
+    (email) => [...document.querySelectorAll("tbody tr")].find((r) => r.innerText.includes(email))?.querySelector("select[data-user-role]"),
+    WRITER.email,
+  );
+  const writerRoleSelector = `select[data-user-role="${await writerSelect.evaluate((s) => s.dataset.userRole)}"]`;
+  const roleValue = () => page.$eval(writerRoleSelector, (s) => s.value);
+  expect("other people's role is a select; your own is not", !!(await page.$(writerRoleSelector)) && !(await page.$$eval("tbody tr", (rows, email) => rows.find((r) => r.innerText.includes(email))?.querySelector("select"), ADMIN.email)));
+  await page.select(writerRoleSelector, "editor");
+  await page.waitForNetworkIdle({ idleTime: 500 });
+  await page.reload({ waitUntil: "networkidle0" });
+  expect("picking Biên tập saves it at once", (await roleValue()) === "editor");
+  await page.select(writerRoleSelector, "admin");
+  await page.waitForSelector('[role="alertdialog"]', { visible: true });
+  expect("making someone an admin asks first", (await page.$eval('[role="alertdialog"]', (d) => d.innerText)).includes("Cấp quyền Quản trị"));
+  await page.evaluate(() => window.scrollTo(0, 0));
+  await page.screenshot({ path: `${OUT}roles-04-confirm-admin.png` });
+  await page.click('[role="alertdialog"] button::-p-text(Huỷ)');
+  expect("cancelling keeps the role", (await roleValue()) === "editor");
+  await page.select(writerRoleSelector, "writer");
+  await page.waitForNetworkIdle({ idleTime: 500 });
+  await page.reload({ waitUntil: "networkidle0" });
+  expect("the role is back to Người viết", (await roleValue()) === "writer");
 } catch (error) {
   failures++;
   console.log("ERROR:", error.message);
