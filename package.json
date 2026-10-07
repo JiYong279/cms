@@ -19,7 +19,6 @@
     "test:seo-score": "tsx tests/seo/score.test.ts && tsx tests/browser/seo-score.mjs",
     "test:fix-and-users": "tsx tests/browser/fix-and-users.mjs",
     "test:calendar": "tsx tests/seo/days.test.ts && tsx tests/browser/calendar.mjs",
-    "test:post-list": "tsx tests/seo/post-list.test.ts && tsx tests/browser/post-list.mjs",
     "test:translate": "tsx tests/browser/translate.mjs",
     "test:back": "tsx tests/browser/back-button.mjs",
     "test:seo-fix": "tsx tests/seo/fix.test.ts && tsx tests/browser/seo-fix.mjs",
@@ -28,6 +27,7 @@
     "test:image-suggestions": "tsx tests/browser/image-suggestions.mjs",
     "test:stock-images": "tsx tests/browser/stock-images.mjs",
     "test:ui-review": "tsx tests/browser/ui-review.mjs",
+    "test:post-list": "tsx tests/seo/post-list.test.ts && tsx tests/browser/post-list.mjs",
     "test:overview": "tsx tests/seo/overview.test.ts && tsx tests/browser/overview.mjs",
     "test:category-ai": "tsx tests/seo/category-ai.test.ts && tsx tests/browser/category-ai.mjs",
     "test:image-storage": "tsx --env-file=.env.local tests/storage-s3.test.ts && tsx tests/browser/image-storage.mjs"
