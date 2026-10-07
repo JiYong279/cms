@@ -12,6 +12,7 @@
     "db:import-qubx": "tsx scripts/import-qubx.ts",
     "db:migrate": "tsx scripts/migrate.ts",
     "test:e2e": "tsx tests/e2e/run.mjs",
+    "test:activity": "tsx tests/seo/activity-details.test.ts",
     "test:browser": "tsx tests/browser/editor.mjs",
     "test:ai": "tsx tests/browser/ai.mjs",
     "db:copy-to-postgres": "tsx scripts/copy-to-postgres.ts",

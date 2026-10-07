@@ -1,6 +1,7 @@
 import { and, desc, eq, gt } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import { dictionaries } from "@/i18n";
+import { isFieldChangeList, mergeFieldChanges } from "./activity-changes";
 import { describeActivity } from "./activity-text";
 
 export type ActivityInput = {
@@ -30,7 +31,7 @@ export async function logActivity(entry: ActivityInput) {
     const db = await getDb();
     if (input.action === "post.updated" && input.userId && input.entityId) {
       const [recent] = await db
-        .select({ id: schema.activityLog.id, summary: schema.activityLog.summary })
+        .select({ id: schema.activityLog.id, summary: schema.activityLog.summary, meta: schema.activityLog.meta })
         .from(schema.activityLog)
         .where(
           and(
@@ -44,7 +45,14 @@ export async function logActivity(entry: ActivityInput) {
         .orderBy(desc(schema.activityLog.at))
         .limit(1);
       if (recent && recent.summary === input.summary) {
-        await db.update(schema.activityLog).set({ at: new Date(), meta: input.meta }).where(eq(schema.activityLog.id, recent.id));
+        // One entry for the whole editing session: what changed since its first save.
+        const earlier = isFieldChangeList(recent.meta?.fields) ? recent.meta.fields : [];
+        const later = isFieldChangeList(input.meta?.fields) ? input.meta.fields : [];
+        const fields = mergeFieldChanges(earlier, later);
+        const meta: Record<string, unknown> = { ...input.meta };
+        if (fields.length) meta.fields = fields;
+        else delete meta.fields;
+        await db.update(schema.activityLog).set({ at: new Date(), meta }).where(eq(schema.activityLog.id, recent.id));
         return;
       }
     }
