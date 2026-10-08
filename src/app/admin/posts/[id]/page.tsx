@@ -5,7 +5,7 @@ import { getDb, schema } from "@/db";
 import type { Locale } from "@/db/schema";
 import { NoAccess } from "@/components/no-access";
 import { getT, getTimeZone } from "@/i18n/server";
-import { describeActivity } from "@/lib/activity-text";
+import { describeActivity, describeActivityDetails } from "@/lib/activity-text";
 import { requireUser } from "@/lib/auth";
 import { ROLES, can, canDeletePost, canEditPost, canEditTranslation } from "@/lib/permissions";
 import { aiConfigured } from "@/lib/ai";
@@ -85,6 +85,7 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
     const tr = post.translations.find((x) => x.locale === l);
     return { locale: l, status: tr?.status ?? null, stale: !!tr && isStale(tr, post.translations) };
   });
+  const timeZone = await getTimeZone();
 
   return (
     <PostEditor
@@ -124,12 +125,13 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
       openAi={ai === "translate" || ai === "draft" ? ai : null}
       aiEngine={engine === "own" || engine === "builtin" ? engine : null}
       authorHasProfile={authorHasProfile}
-      timeZone={await getTimeZone()}
+      timeZone={timeZone}
       trashed={post.deletedAt ? { at: post.deletedAt, by: trashedBy ?? null } : null}
       history={history.map((h) => ({
         at: h.at,
         who: h.who ?? t.common.system,
         summary: describeActivity({ action: h.action, summary: h.summary, meta: h.meta, siteName: post.site.name }, t),
+        details: describeActivityDetails({ meta: h.meta }, t, timeZone),
       }))}
     />
   );

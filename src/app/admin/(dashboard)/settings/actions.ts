@@ -10,6 +10,7 @@ import { requireUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { pingSite } from "@/lib/revalidate";
 import { logActivity } from "@/lib/activity";
+import { getFieldChanges } from "@/lib/activity-changes";
 import { describeActivity } from "@/lib/activity-text";
 import type { FormState } from "../users/actions";
 
@@ -75,14 +76,21 @@ export async function updateSite(_prev: FormState, formData: FormData): Promise<
   if (!parsed.success) return { error: parsed.error.issues[0]?.message };
 
   const db = await getDb();
-  const updated = await db
-    .update(schema.sites)
-    .set(values(parsed.data))
-    .where(eq(schema.sites.id, parsed.data.id))
-    .returning({ id: schema.sites.id });
-  if (updated.length === 0) return { error: t.users.settings.errors.notFound };
-  // values() already carries the name the log line needs.
-  const meta = values(parsed.data);
+  const [before] = await db.select().from(schema.sites).where(eq(schema.sites.id, parsed.data.id)).limit(1);
+  if (!before) return { error: t.users.settings.errors.notFound };
+  const next = values(parsed.data);
+  await db.update(schema.sites).set(next).where(eq(schema.sites.id, parsed.data.id));
+  // values() already carries the name the log line needs; `fields` says what changed.
+  const flat = (s: typeof next) => ({
+    name: s.name,
+    baseUrl: s.baseUrl,
+    blogPathVi: s.blogPaths.vi,
+    blogPathEn: s.blogPaths.en,
+    defaultLocale: s.defaultLocale,
+    revalidateUrl: s.revalidateUrl,
+  });
+  const fields = getFieldChanges(flat(before), flat(next));
+  const meta = { ...next, ...(fields.length ? { fields } : {}) };
   await logActivity({
     userId: manager.id,
     action: "site.updated",

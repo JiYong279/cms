@@ -76,7 +76,7 @@ type Props = {
   /** Set while the article is in the trash: read-only until restored. */
   trashed: { at: Date; by: string | null } | null;
   /** Latest activity on this article, newest first. */
-  history: { at: Date; who: string; summary: string }[];
+  history: { at: Date; who: string; summary: string; details: string[] }[];
   /** ANTHROPIC_API_KEY is set, so the AI assistant can run. */
   aiEnabled: boolean;
   /** The website's live articles in this language, for AI drafts to link to. */
@@ -885,6 +885,15 @@ export function PostEditor({
                   <li key={i} className="relative text-xs">
                     <span className="absolute -left-[1.3rem] top-1 size-2 rounded-full border-2 border-white bg-brand-bright" />
                     <p className="font-medium text-zinc-800">{h.summary}</p>
+                    {h.details.length > 0 && (
+                      <ul className="mt-0.5 space-y-0.5 text-zinc-600">
+                        {h.details.map((line, j) => (
+                          <li key={j} className="break-words">
+                            {line}
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                     <p className="text-zinc-500" suppressHydrationWarning>
                       {h.who} · {time(h.at)}
                     </p>

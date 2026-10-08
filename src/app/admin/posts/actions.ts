@@ -15,6 +15,7 @@ import { slugify } from "@/lib/posts";
 import { fmt } from "@/i18n";
 import { getT } from "@/i18n/server";
 import { notifySite } from "@/lib/revalidate";
+import { countWords, getVersionChanges, type VersionSnapshot } from "./version-changes";
 
 export type SaveResult = { ok: true; savedAt: string; slug: string } | { ok: false; error: string };
 export type BulkResult = { done: number; skipped: number };
@@ -24,8 +25,7 @@ function contentHash(title: string, excerpt: string, html: string) {
 }
 
 function readingMinutes(html: string) {
-  const words = html.replace(/<[^>]+>/g, " ").split(/\s+/).filter(Boolean).length;
-  return Math.max(1, Math.round(words / 200));
+  return Math.max(1, Math.round(countWords(html) / 200));
 }
 
 /** Postgres unique_violation, raised directly or wrapped by the driver. */
@@ -249,6 +249,35 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
     throw error;
   }
 
+  // What this save changed, so the activity log can say more than "edited".
+  const categoryIds = [post.categoryId, input.categoryId].filter((id): id is string => !!id);
+  const categoryNames = new Map(
+    categoryIds.length
+      ? (
+          await db
+            .select({ id: schema.categories.id, names: schema.categories.names })
+            .from(schema.categories)
+            .where(inArray(schema.categories.id, categoryIds))
+        ).map((c) => [c.id, c.names[input.locale] ?? c.names.vi ?? null])
+      : [],
+  );
+  const categoryName = (id: string | null) => (id ? (categoryNames.get(id) ?? null) : null);
+  const before: VersionSnapshot | null = existing && {
+    ...existing,
+    category: categoryName(post.categoryId),
+    featured: post.featured,
+    pillar: post.pillar,
+    coverImageUrl: post.coverImageUrl,
+  };
+  const fields = getVersionChanges(before, {
+    ...values,
+    category: categoryName(input.categoryId),
+    featured: input.featured,
+    // Left out of the request, the pillar flag keeps its value (see the update above).
+    pillar: input.pillar ?? post.pillar,
+    coverImageUrl: input.coverImageUrl,
+  });
+
   await logActivity({
     userId: user.id,
     action: statusAction(existing?.status ?? null, input.status),
@@ -259,7 +288,7 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
       title: input.title,
       locale: input.locale,
       status: input.status,
-      ...(existing && existing.slug !== slug ? { slugFrom: existing.slug, slugTo: slug } : {}),
+      ...(fields.length ? { fields } : {}),
     },
   });
 

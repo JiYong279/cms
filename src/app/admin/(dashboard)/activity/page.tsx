@@ -6,7 +6,7 @@ import { NoAccess } from "@/components/no-access";
 import { dictionaries, fmt, type Dict } from "@/i18n";
 import { getT, getTimeZone } from "@/i18n/server";
 import { ACTIVITY_GROUPS, type ActivityGroup } from "@/lib/activity";
-import { describeActivity } from "@/lib/activity-text";
+import { describeActivity, describeActivityDetails } from "@/lib/activity-text";
 import { requireUser } from "@/lib/auth";
 import { can } from "@/lib/permissions";
 import { cn } from "@/lib/utils";
@@ -34,6 +34,11 @@ function formatWhen(date: Date, t: Dict, timeZone: string) {
   return new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "short", timeStyle: "short", timeZone }).format(date);
 }
 
+/** The full date and time, to the second, shown on hover. */
+function formatExact(date: Date, t: Dict, timeZone: string) {
+  return new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "full", timeStyle: "medium", timeZone }).format(date);
+}
+
 function dayLabel(date: Date, t: Dict, timeZone: string) {
   return new Intl.DateTimeFormat(t.common.dateLocale, {
     weekday: "long",
@@ -49,6 +54,7 @@ export default async function ActivityPage({ searchParams }: PageProps<"/admin/a
   const t = await getT();
   if (!can(me.role, "activity.view")) return <NoAccess message={t.activity.noAccess} />;
   const timeZone = await getTimeZone();
+  const canSeeIp = can(me.role, "users.manage");
 
   const params = await searchParams;
   const pick = (v: string | string[] | undefined) => (typeof v === "string" && v ? v : undefined);
@@ -157,9 +163,13 @@ export default async function ActivityPage({ searchParams }: PageProps<"/admin/a
               const rawTitle = typeof e.meta?.title === "string" ? e.meta.title : null;
               // Older entries stored the Vietnamese "(untitled)" placeholder itself.
               const title = rawTitle === null ? null : rawTitle && rawTitle !== dictionaries.vi.common.untitled ? rawTitle : t.common.untitled;
+              const locale = typeof e.meta?.locale === "string" ? e.meta.locale : null;
+              // The IP address of a sign-in is personal data: only people who manage accounts see it.
+              const meta = e.meta && !canSeeIp ? { ...e.meta, ip: undefined } : e.meta;
+              const details = describeActivityDetails({ meta }, t, timeZone);
               const target =
                 e.entityType === "post" && e.entityId && existing.has(e.entityId)
-                  ? `/admin/posts/${e.entityId}`
+                  ? `/admin/posts/${e.entityId}${locale ? `?locale=${locale}` : ""}`
                   : e.entityType === "user" && e.entityId
                     ? `/admin/users/${e.entityId}`
                     : e.entityType === "site"
@@ -193,8 +203,17 @@ export default async function ActivityPage({ searchParams }: PageProps<"/admin/a
                             ))}
                         </p>
                       )}
+                      {details.length > 0 && (
+                        <ul className="mt-1.5 space-y-0.5 border-l-2 border-zinc-100 pl-3 text-xs text-zinc-600" data-activity-details>
+                          {details.map((line, j) => (
+                            <li key={j} className="break-words">
+                              {line}
+                            </li>
+                          ))}
+                        </ul>
+                      )}
                     </div>
-                    <time dateTime={e.at.toISOString()} className="shrink-0 text-xs text-zinc-400">
+                    <time dateTime={e.at.toISOString()} title={formatExact(e.at, t, timeZone)} className="shrink-0 text-xs text-zinc-400">
                       {formatWhen(e.at, t, timeZone)}
                     </time>
                   </div>
