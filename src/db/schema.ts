@@ -7,6 +7,7 @@ import {
   jsonb,
   pgEnum,
   pgTable,
+  primaryKey,
   text,
   timestamp,
   uniqueIndex,
@@ -68,6 +69,22 @@ export const users = pgTable("users", {
   bios: jsonb("bios").$type<Partial<Record<Locale, string>>>().notNull().default({}),
   ...timestamps,
 });
+
+/**
+ * What editors and writers may do, where an admin changed it from the defaults in
+ * src/lib/permissions.ts. No row means the default; admins always hold every permission.
+ */
+export const rolePermissions = pgTable(
+  "role_permissions",
+  {
+    role: roleEnum("role").notNull(),
+    permission: text("permission").notNull(),
+    granted: boolean("granted").notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.role, t.permission] })],
+);
 
 export const sessions = pgTable(
   "sessions",

@@ -1,3 +1,4 @@
+import { EDITABLE_PERMISSIONS, isGrantedByDefault } from "../../src/lib/permissions.ts";
 import { ADMIN, Client, EDITOR, WRITER, check, destroyPosts, has, message, signedIn, somePublishedPost } from "./lib.mjs";
 
 const admin = new Client();
@@ -148,6 +149,41 @@ t = await editor.call("/admin", "trashPosts", [[postId]]);
 check("editor trashes it", t.done === 1, JSON.stringify(t));
 t = await writer.call("/admin?view=trash", "deletePostsForever", [[postId]]);
 check("writer cannot delete forever", t.done === 0, JSON.stringify(t));
+
+// Role permissions: an admin changes what writers may do, and it applies at the writer's next click.
+const defaults = Object.fromEntries(["editor", "writer"].map((role) => [role, EDITABLE_PERMISSIONS.filter((p) => isGrantedByDefault(role, p))]));
+r = await admin.req("/admin/users");
+check("admin sees the permission checkboxes", has(r, 'data-role="writer" data-permission="activity.view"'));
+let g = await admin.call("/admin/users", "saveRolePermissions", [{ ...defaults, writer: [...defaults.writer, "activity.view"] }]);
+check("admin lets writers see the activity log", g.ok === true, JSON.stringify(g));
+r = await writer.req("/admin/activity");
+check("writer now sees the activity log", r.status === 200 && has(r, "Nhật ký hoạt động") && !has(r, "Không có quyền truy cập"));
+r = await admin.req("/admin/activity");
+check("the change is in the activity log", has(r, "Đổi quyền của vai trò Người viết: thêm “Xem nhật ký hoạt động”"));
+g = await admin.call("/admin/users", "saveRolePermissions", [{ ...defaults, writer: [...defaults.writer, "users.manage"] }]);
+check("users.manage cannot be given to writers", g.ok === false && /không hợp lệ/.test(g.error), JSON.stringify(g));
+g = await editor.call("/admin/users", "saveRolePermissions", [{ ...defaults, editor: EDITABLE_PERMISSIONS }]);
+check("editor cannot change permissions", g.ok === false && /Chỉ quản trị viên được đổi phân quyền/.test(g.error), JSON.stringify(g));
+g = await admin.call("/admin/users", "saveRolePermissions", [defaults]);
+check("admin restores the defaults", g.ok === true, JSON.stringify(g));
+
+// Changing someone's role from the users list.
+g = await admin.call("/admin/users", "setUserRole", [writerId, "editor"]);
+check("admin makes the writer an editor from the list", /Biên tập/.test(g.success ?? ""), JSON.stringify(g));
+r = await writer.req("/admin");
+check("the new role applies at once", has(r, others.title));
+r = await admin.req("/admin/activity");
+check("the role change is in the activity log", has(r, `${WRITER.name}: đổi vai trò Người viết → Biên tập`));
+g = await admin.call("/admin/users", "setUserRole", [writerId, "writer"]);
+check("admin puts the writer role back", /Người viết/.test(g.success ?? ""), JSON.stringify(g));
+g = await admin.call("/admin/users", "setUserRole", [adminId, "editor"]);
+check("admin cannot change their own role", /không thể tự đổi vai trò/.test(g.error ?? ""), JSON.stringify(g));
+g = await admin.call("/admin/users", "setUserRole", [writerId, "owner"]);
+check("an unknown role is refused", /Vai trò không hợp lệ/.test(g.error ?? ""), JSON.stringify(g));
+g = await editor.call("/admin/users", "setUserRole", [writerId, "admin"]);
+check("editor cannot change roles", /Chỉ quản trị viên/.test(g.error ?? ""), JSON.stringify(g));
+r = await writer.req("/admin/activity");
+check("writer is blocked from the activity log again", has(r, "Không có quyền truy cập"));
 
 // Clean up
 await destroyPosts(admin, [postId]);
