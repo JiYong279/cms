@@ -156,14 +156,16 @@ jobs:
       # cms-migrate runs before cms-web is replaced; if it fails, the running release is left untouched.
       - name: Migrate and start
         run: |
-          ssh staging IMAGE_TAG="$IMAGE_TAG" APP_DIR="$APP_DIR" bash -s <<'SCRIPT'
+          ssh staging IMAGE_TAG="$IMAGE_TAG" APP_DIR="$APP_DIR" bash -s <<'SCRIPT' | tee deploy.log
           set -euo pipefail
           cd "$APP_DIR"
           compose="docker compose -f docker-compose.yml -f docker-compose.vps.yml"
           # A copy of the database before this release migrates it; a failed copy stops the deploy. Skipped
           # only on the first deploy with backups, when cms-backup is not running yet (it copies on start).
+          # This script reaches bash over stdin: a command that reads stdin (exec -T does) would swallow the
+          # rest of it, and the deploy would end "successfully" without starting anything. Hence </dev/null.
           if [ -n "$($compose ps --status running -q cms-backup)" ]; then
-            $compose exec -T cms-backup sh -c 'f="/backups/db/cms-$(date -u +%Y%m%d-%H%M%S)-predeploy.dump"; pg_dump --format=custom --no-owner --file="$f.part" && mv "$f.part" "$f" && echo "[backup] wrote $f"'
+            $compose exec -T cms-backup sh -c 'f="/backups/db/cms-$(date -u +%Y%m%d-%H%M%S)-predeploy.dump"; pg_dump --format=custom --no-owner --file="$f.part" && mv "$f.part" "$f" && echo "[backup] wrote $f"' </dev/null
           fi
           $compose up -d --no-build --wait --remove-orphans
           # .env holds the last release that came up healthy: manual compose commands and a rollback read it.
@@ -178,7 +180,10 @@ jobs:
               fi
             done
           done
+          echo "[deploy] done: $IMAGE_TAG is running"
           SCRIPT
+          # A script cut short still ends with status 0: only its last line proves every step ran.
+          grep -q '^\[deploy\] done' deploy.log || { echo "::error::the deploy script stopped before starting the release"; exit 1; }
 
   # Posts the outcome to Discord: every deploy, and CI failures on dev or main. Not pull requests (the PR
   # page shows the result) and not cancelled runs (a newer push on dev cancels the older run by design).
