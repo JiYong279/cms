@@ -75,8 +75,10 @@ export default async function CalendarPage({ searchParams }: PageProps<"/admin/c
   });
 
   const time = new Intl.DateTimeFormat(t.common.dateLocale, { hour: "2-digit", minute: "2-digit", timeZone });
+  const canReschedule = can(user.role, "posts.publish");
   const entries: CalendarEntry[] = [];
   for (const post of posts) {
+    const canEdit = canEditPost(user, post);
     const main = post.translations.find((tr) => tr.locale === post.site.defaultLocale) ?? post.translations[0];
     const base = {
       postId: post.id,
@@ -102,10 +104,12 @@ export default async function CalendarPage({ searchParams }: PageProps<"/admin/c
         href: `/admin/posts/${post.id}?locale=${tr.locale}`,
         day,
         time: time.format(at),
+        at: at.toISOString(),
         status: tr.status,
         locales: [tr.locale],
         planned: false,
-        movable: false,
+        // Published versions keep their day here; scheduled ones move with the right to publish.
+        lock: tr.status === "published" ? "published" : canEdit && canReschedule ? null : "notAllowed",
       });
     }
     entries.push(...live.values());
@@ -122,10 +126,11 @@ export default async function CalendarPage({ searchParams }: PageProps<"/admin/c
         href: `/admin/posts/${post.id}?locale=${first.locale}`,
         day: post.plannedFor,
         time: null,
+        at: null,
         status,
         locales: waiting.map((tr) => tr.locale as Locale),
         planned: true,
-        movable: canEditPost(user, post),
+        lock: canEdit ? null : "notAllowed",
       });
     }
   }

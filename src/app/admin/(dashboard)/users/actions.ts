@@ -224,3 +224,40 @@ export async function setUserActive(id: string, active: boolean): Promise<FormSt
   revalidatePath("/admin/users");
   return { success: fmt(active ? t.users.list.enabledDone : t.users.list.disabledDone, { name: target.name }) };
 }
+
+/** Gives someone another role, from the users list. */
+export async function setUserRole(id: string, role: string): Promise<FormState> {
+  const t = await getT();
+  const user = await requireUser();
+  const parsed = z.object({ id: z.uuid(), role: z.enum(schema.roleEnum.enumValues) }).safeParse({ id, role });
+  if (!parsed.success) return { error: t.users.errors.roleInvalid };
+  if (!can(user.role, "users.manage")) return { error: t.users.noAccess.edit };
+  if (parsed.data.id === user.id) return { error: t.users.errors.selfChange };
+
+  const db = await getDb();
+  const [target] = await db.select().from(schema.users).where(eq(schema.users.id, parsed.data.id)).limit(1);
+  if (!target) return { error: t.users.errors.notFound };
+  if (target.role === parsed.data.role) return {};
+
+  // Never leave the CMS without an active admin.
+  if (target.role === "admin" && target.active) {
+    const [{ value: otherAdmins }] = await db
+      .select({ value: count() })
+      .from(schema.users)
+      .where(and(eq(schema.users.role, "admin"), eq(schema.users.active, true), ne(schema.users.id, target.id)));
+    if (otherAdmins === 0) return { error: t.users.errors.lastAdmin };
+  }
+
+  await db.update(schema.users).set({ role: parsed.data.role }).where(eq(schema.users.id, target.id));
+  const meta = { name: target.name, changes: [{ type: "role", from: target.role, to: parsed.data.role }] as ActivityChange[] };
+  await logActivity({
+    userId: user.id,
+    action: "user.updated",
+    entityType: "user",
+    entityId: target.id,
+    summary: viSummary("user.updated", meta),
+    meta,
+  });
+  revalidatePath("/admin/users");
+  return { success: fmt(t.users.list.roleChanged, { name: target.name, role: t.common.roles[parsed.data.role] }) };
+}

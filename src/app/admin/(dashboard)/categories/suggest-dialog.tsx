@@ -86,7 +86,8 @@ function SuggestDialog({ site, existing, titles, aiEnabled, onClose }: Props & {
 
   function review(ideas: Parameters<typeof reviewCategoryPlan>[0]) {
     const reviewed = reviewCategoryPlan(ideas, existing);
-    setRows(reviewed.ideas.map((i) => ({ ...i, apply: i.kind === "new" || i.kind === "rename" })));
+    // Only new categories start ticked: a rename moves every article of the category to the new name.
+    setRows(reviewed.ideas.map((i) => ({ ...i, apply: i.kind === "new" })));
     setUnused(reviewed.unused);
     setError(null);
   }
@@ -202,6 +203,11 @@ function SuggestDialog({ site, existing, titles, aiEnabled, onClose }: Props & {
                         {row.kind === "new" && row.descriptionVi && <p className="mt-2 text-xs leading-relaxed text-zinc-600">{lang === "en" && row.descriptionEn ? row.descriptionEn : row.descriptionVi}</p>}
                         {row.why && <p className="mt-1 text-xs leading-relaxed text-zinc-500">{row.why}</p>}
                         {row.kind === "merge" && <p className="mt-1 text-xs text-amber-700">{s.mergeHint}</p>}
+                        {row.kind === "rename" && row.existing[0].posts > 0 && (
+                          <p className="mt-1 text-xs text-amber-700" data-rename-warning>
+                            {fmt(s.renameWarning, { n: row.existing[0].posts })}
+                          </p>
+                        )}
                       </div>
                     </div>
                   </li>
