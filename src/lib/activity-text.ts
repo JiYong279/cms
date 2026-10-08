@@ -1,4 +1,5 @@
 import { fmt, type Dict } from "@/i18n";
+import { isFieldChangeList, type FieldChange, type FieldValue } from "./activity-changes";
 
 /**
  * What an activity-log entry says, in the reader's language. Entries store an action code and
@@ -91,4 +92,48 @@ export function describeActivity(entry: Entry, t: Dict): string {
   const needed = [...template.matchAll(/\{(\w+)\}/g)].map((m) => m[1]);
   if (needed.some((k) => !(k in vars))) return entry.summary;
   return fmt(template, vars);
+}
+
+const DATE_FIELDS = new Set(["scheduledAt", "publishedAt"]);
+
+/**
+ * The lines shown under an entry: what a save changed (meta.fields), one line per field, and
+ * what older entries recorded (a renamed address, the IP address of a sign-in).
+ */
+export function describeActivityDetails(entry: Pick<Entry, "meta">, t: Dict, timeZone: string): string[] {
+  const meta = entry.meta ?? {};
+  const d = t.activity.details;
+  const labels = t.activity.fields as Record<string, string>;
+  const number = new Intl.NumberFormat(t.common.dateLocale);
+  const dateTime = new Intl.DateTimeFormat(t.common.dateLocale, { dateStyle: "medium", timeStyle: "short", timeZone });
+
+  const fields: FieldChange[] = isFieldChangeList(meta.fields) ? meta.fields : [];
+  // Before field changes were recorded, a save kept only a renamed address.
+  if (!fields.length && typeof meta.slugFrom === "string" && typeof meta.slugTo === "string") {
+    fields.push({ field: "slug", from: meta.slugFrom, to: meta.slugTo });
+  }
+
+  const lines = fields.map((c) => {
+    const field = labels[c.field] ?? c.field;
+    if (c.field === "content") {
+      const to = Number(c.to);
+      if (c.from === null) return fmt(d.wordsNew, { to: number.format(to) });
+      const diff = to - Number(c.from);
+      if (diff === 0) return fmt(d.wordsSame, { to: number.format(to) });
+      return fmt(d.words, { from: number.format(Number(c.from)), to: number.format(to), diff: `${diff > 0 ? "+" : "−"}${number.format(Math.abs(diff))}` });
+    }
+    if (c.field === "coverImageUrl") return c.from === null ? d.imageAdded : c.to === null ? d.imageRemoved : d.imageChanged;
+    if (typeof c.to === "boolean" || typeof c.from === "boolean") return fmt(c.to ? d.on : d.off, { field });
+    const show = (v: FieldValue) =>
+      DATE_FIELDS.has(c.field) && typeof v === "string"
+        ? dateTime.format(new Date(v))
+        : c.field === "defaultLocale"
+          ? String(v).toUpperCase()
+          : fmt(d.quote, { value: String(v) });
+    if (c.from === null) return fmt(d.added, { field, to: show(c.to) });
+    if (c.to === null) return fmt(d.removed, { field, from: show(c.from) });
+    return fmt(d.changed, { field, from: show(c.from), to: show(c.to) });
+  });
+  if (typeof meta.ip === "string" && meta.ip) lines.push(fmt(d.ip, { ip: meta.ip }));
+  return lines;
 }
