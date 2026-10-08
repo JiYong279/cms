@@ -37,8 +37,53 @@ export const PERMISSIONS = {
 
 export type Permission = keyof typeof PERMISSIONS;
 
-export function can(role: Role, permission: Permission) {
+export const ALL_PERMISSIONS = Object.keys(PERMISSIONS) as Permission[];
+
+/** Roles whose permissions an admin can change. Admins always hold every permission. */
+export const EDITABLE_ROLES = ["editor", "writer"] as const satisfies readonly Role[];
+export type EditableRole = (typeof EDITABLE_ROLES)[number];
+
+/**
+ * Permissions that stay with admins whatever is configured: whoever holds them decides who may
+ * do what, so granting them to another role would let it make itself admin.
+ */
+export const ADMIN_ONLY_PERMISSIONS = ["users.manage", "sites.manage"] as const satisfies readonly Permission[];
+
+export const EDITABLE_PERMISSIONS = ALL_PERMISSIONS.filter((p) => !isAdminOnly(p));
+
+export function isPermission(value: string): value is Permission {
+  return (ALL_PERMISSIONS as string[]).includes(value);
+}
+
+export function isAdminOnly(permission: Permission) {
+  return (ADMIN_ONLY_PERMISSIONS as readonly Permission[]).includes(permission);
+}
+
+export function isEditableRole(role: Role): role is EditableRole {
+  return (EDITABLE_ROLES as readonly Role[]).includes(role);
+}
+
+/** Whether a role holds a permission when no admin has changed it (the table above). */
+export function isGrantedByDefault(role: Role, permission: Permission) {
   return (PERMISSIONS[permission].roles as readonly Role[]).includes(role);
+}
+
+/** An admin's changes to the defaults: for each editable role, the permissions turned on or off. */
+export type PermissionOverrides = Partial<Record<EditableRole, Partial<Record<Permission, boolean>>>>;
+
+/**
+ * The changes saved in the database (role_permissions), loaded on the server at the start of
+ * every request by getCurrentUser (lib/role-permissions.ts). Until then, the defaults apply.
+ */
+let overrides: PermissionOverrides = {};
+
+export function setPermissionOverrides(next: PermissionOverrides) {
+  overrides = next;
+}
+
+export function can(role: Role, permission: Permission) {
+  const changed = isEditableRole(role) && !isAdminOnly(permission) ? overrides[role]?.[permission] : undefined;
+  return changed ?? isGrantedByDefault(role, permission);
 }
 
 type Actor = { id: string; role: Role };
@@ -48,7 +93,7 @@ export function isLive(status: PostStatus) {
 }
 
 export function canEditPost(user: Actor, post: { authorId: string | null }) {
-  return can(user.role, "posts.editAny") || post.authorId === user.id;
+  return can(user.role, "posts.editAny") || (post.authorId === user.id && can(user.role, "posts.editOwn"));
 }
 
 /** Writers may change their own article only while no language of it is live. */

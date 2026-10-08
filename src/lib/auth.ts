@@ -5,6 +5,7 @@ import { redirect } from "next/navigation";
 import { and, eq, gt, ne } from "drizzle-orm";
 import { getDb, schema } from "@/db";
 import type { Role } from "@/db/schema";
+import { loadPermissionOverrides } from "./role-permissions";
 import { SESSION_COOKIE } from "./session-cookie";
 
 const SESSION_DAYS = 30;
@@ -42,7 +43,10 @@ export async function destroySession() {
   store.delete(SESSION_COOKIE);
 }
 
-/** The signed-in user, or null. Cached for the duration of one request. */
+/**
+ * The signed-in user, or null. Cached for the duration of one request. Also loads what each role
+ * may do, so every permission check in the request (can()) sees the admin's latest changes.
+ */
 export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
   const token = (await cookies()).get(SESSION_COOKIE)?.value;
   if (!token) return null;
@@ -65,7 +69,9 @@ export const getCurrentUser = cache(async (): Promise<CurrentUser | null> => {
       ),
     )
     .limit(1);
-  return row ?? null;
+  if (!row) return null;
+  await loadPermissionOverrides();
+  return row;
 });
 
 /** Returns the signed-in user or sends the visitor to the login page. */

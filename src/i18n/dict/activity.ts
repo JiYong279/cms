@@ -45,6 +45,7 @@ const vi = {
     "user.updated": "{name}: {changes}",
     "user.password_reset": "Đặt lại mật khẩu cho {name}",
     "user.password_changed": "Tự đổi mật khẩu",
+    "role.updated": "Đổi quyền của vai trò {role}: {grants}",
     "site.created": "Thêm website {name}",
     "site.updated": "Sửa cài đặt website {name}",
     "site.brief_updated": "Sửa định hướng nội dung của {name}",
@@ -59,6 +60,8 @@ const vi = {
     lock: "vô hiệu hoá tài khoản",
     unlock: "kích hoạt lại tài khoản",
     rename: "đổi tên thành {to}",
+    granted: "thêm “{permission}”",
+    revoked: "bỏ “{permission}”",
   },
   /** Names of the fields a save can change, in the detail lines under an entry. */
   fields: {
@@ -99,6 +102,8 @@ const vi = {
     imageRemoved: "Ảnh bìa: bỏ ảnh",
     ip: "Địa chỉ IP: {ip}",
   },
+  /** A day with its time of day, in an entry's text. */
+  dateAtTime: "{date} lúc {time}",
   historyTitle: "Lịch sử",
   historyHint: "Ai đã làm gì với bài này. Xem toàn bộ ở Nhật ký hoạt động.",
   historyEmpty: "Chưa có hoạt động nào.",
@@ -152,6 +157,7 @@ const en: ActivityDict = {
     "user.updated": "{name}: {changes}",
     "user.password_reset": "Reset the password of {name}",
     "user.password_changed": "Changed their own password",
+    "role.updated": "Changed what the {role} role may do: {grants}",
     "site.created": "Added the website {name}",
     "site.updated": "Changed the settings of {name}",
     "site.brief_updated": "Changed the content brief of {name}",
@@ -166,6 +172,8 @@ const en: ActivityDict = {
     lock: "account disabled",
     unlock: "account enabled again",
     rename: "renamed to {to}",
+    granted: "allowed “{permission}”",
+    revoked: "removed “{permission}”",
   },
   fields: {
     title: "Title",
@@ -205,6 +213,7 @@ const en: ActivityDict = {
     imageRemoved: "Cover image: removed",
     ip: "IP address: {ip}",
   },
+  dateAtTime: "{date} at {time}",
   historyTitle: "History",
   historyHint: "Who did what to this article. See everything in the activity log.",
   historyEmpty: "No activity yet.",

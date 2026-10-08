@@ -3,7 +3,21 @@
 import { useState, useTransition } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { AlertTriangle, ExternalLink, FileText, Loader2, Pencil, Plus, RotateCcw, Star, Trash2, X } from "lucide-react";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  ExternalLink,
+  FileText,
+  Loader2,
+  Pencil,
+  Plus,
+  RotateCcw,
+  Star,
+  Trash2,
+  X,
+} from "lucide-react";
 import { ConfirmPopover } from "@/components/confirm-popover";
 import type { Locale, PostStatus } from "@/db/schema";
 import { plural, fmt } from "@/i18n";
@@ -12,6 +26,7 @@ import { STATUS } from "@/lib/posts";
 import { scoreLevel } from "@/lib/seo-score";
 import { cn } from "@/lib/utils";
 import { deletePostsForever, restorePosts, trashPosts, type BulkResult } from "../posts/actions";
+import type { SortDir, SortKey } from "./post-list";
 
 export type PostRow = {
   id: string;
@@ -32,7 +47,31 @@ export type PostRow = {
 
 const SCORE_COLOR = { good: "text-emerald-600", ok: "text-amber-600", weak: "text-red-500" } as const;
 
-type Props = { rows: PostRow[]; trash: boolean; canPurge: boolean; emptyTitle: string; emptyHint: string };
+/** For each sortable column: where clicking it leads, and its direction when it is the current sort. */
+export type SortLinks = Record<SortKey, { href: string; dir: SortDir | null }>;
+
+type Props = { rows: PostRow[]; sortLinks: SortLinks; trash: boolean; canPurge: boolean; emptyTitle: string; emptyHint: string };
+
+/** A column header that sorts the list by that column (again: the other way round). */
+function SortHeader({ link, label, hint, right }: { link: SortLinks[SortKey]; label: string; hint: string; right?: boolean }) {
+  const Icon = link.dir === "asc" ? ArrowUp : link.dir === "desc" ? ArrowDown : ArrowUpDown;
+  return (
+    <th
+      className={cn("px-3 py-3 font-medium", right && "text-right")}
+      aria-sort={link.dir === "asc" ? "ascending" : link.dir === "desc" ? "descending" : undefined}
+    >
+      <Link
+        href={link.href}
+        title={hint}
+        data-sort-link
+        className={cn("inline-flex items-center gap-1 hover:text-zinc-800", link.dir && "font-semibold text-zinc-800")}
+      >
+        {label}
+        <Icon className={cn("size-3.5", !link.dir && "text-zinc-300")} aria-hidden />
+      </Link>
+    </th>
+  );
+}
 type Toast = { text: string; undo?: string[] };
 
 function initials(name: string) {
@@ -40,7 +79,7 @@ function initials(name: string) {
   return ((parts[0]?.[0] ?? "") + (parts.length > 1 ? parts[parts.length - 1][0] : "")).toUpperCase();
 }
 
-export function PostTable({ rows, trash, canPurge, emptyTitle, emptyHint }: Props) {
+export function PostTable({ rows, sortLinks, trash, canPurge, emptyTitle, emptyHint }: Props) {
   const { t: dict } = useI18n();
   const t = dict.posts.table;
   const router = useRouter();
@@ -149,11 +188,11 @@ export function PostTable({ rows, trash, canPurge, emptyTitle, emptyHint }: Prop
                   className="size-4 accent-brand"
                 />
               </th>
-              <th className="px-3 py-3 font-medium">{t.article}</th>
+              <SortHeader link={sortLinks.title} label={t.article} hint={t.sortTitle} />
               <th className="px-3 py-3 font-medium">{t.author}</th>
-              <th className="px-3 py-3 font-medium">{dict.common.locales.vi}</th>
-              <th className="px-3 py-3 font-medium">{dict.common.locales.en}</th>
-              <th className="px-3 py-3 text-right font-medium">{trash ? t.deleted : t.updated}</th>
+              <SortHeader link={sortLinks.vi} label={dict.common.locales.vi} hint={fmt(t.sortStatus, { locale: "VI" })} />
+              <SortHeader link={sortLinks.en} label={dict.common.locales.en} hint={fmt(t.sortStatus, { locale: "EN" })} />
+              <SortHeader link={sortLinks.updated} label={trash ? t.deleted : t.updated} hint={t.sortDate} right />
               <th className="w-28 px-3 py-3" aria-label={t.actions} />
             </tr>
           </thead>
@@ -210,7 +249,7 @@ export function PostTable({ rows, trash, canPurge, emptyTitle, emptyHint }: Prop
                   )}
                 </td>
                 {row.locales.map((l) => (
-                  <td key={l.locale} className="px-3 py-3">
+                  <td key={l.locale} className="px-3 py-3" data-locale={l.locale} data-status={l.status ?? "none"}>
                     {l.status ? (
                       <Link href={l.href} className="inline-flex flex-col items-start gap-1">
                         <span className="flex items-center gap-2">
