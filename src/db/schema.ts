@@ -130,6 +130,7 @@ export const posts = pgTable(
       .references(() => sites.id, { onDelete: "cascade" }),
     categoryId: uuid("category_id").references(() => categories.id, { onDelete: "set null" }),
     authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** The cover set from the site's default language; every language without its own cover uses it. */
     coverImageUrl: text("cover_image_url"),
     featured: boolean("featured").notNull().default(false),
     /** The overview article of its category (topic), which the other articles of the topic link to. */
@@ -180,7 +181,9 @@ export const postTranslations = pgTable(
     metaDescription: text("meta_description").notNull().default(""),
     focusKeyword: text("focus_keyword").notNull().default(""),
     ogImageUrl: text("og_image_url"),
-    /** Describes the article's cover image (shared by every language) in this language, for screen readers and search. */
+    /** This language's own cover (e.g. with its title in this language); null: the article's cover (posts). */
+    coverImageUrl: text("cover_image_url"),
+    /** Describes the cover image this language shows, for screen readers and search. */
     coverImageAlt: text("cover_image_alt").notNull().default(""),
     canonicalUrl: text("canonical_url"),
     noindex: boolean("noindex").notNull().default(false),

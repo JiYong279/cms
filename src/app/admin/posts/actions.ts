@@ -158,6 +158,17 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
   const slug = slugify(input.slug || input.title);
   if (!slug) return { ok: false, error: t.badSlug };
 
+  // The site's default language sets the article's cover; another language keeps its own only when it
+  // differs (a cover with its title in that language), and never changes the article's.
+  const [site] = await db
+    .select({ defaultLocale: schema.sites.defaultLocale })
+    .from(schema.sites)
+    .where(eq(schema.sites.id, post.siteId))
+    .limit(1);
+  const setsSharedCover = input.locale === site?.defaultLocale;
+  const sharedCover = setsSharedCover ? input.coverImageUrl : post.coverImageUrl;
+  const ownCover = setsSharedCover || input.coverImageUrl === post.coverImageUrl ? null : input.coverImageUrl;
+
   const [translatedFrom] =
     input.translatedFrom && input.translatedFrom !== input.locale
       ? await db
@@ -180,6 +191,7 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
     metaDescription: input.metaDescription,
     focusKeyword: input.focusKeyword,
     noindex: input.noindex,
+    coverImageUrl: ownCover,
     coverImageAlt: input.coverImageAlt ?? existing?.coverImageAlt ?? "",
     contentHash: contentHash(input.title, input.excerpt, input.contentHtml),
     scheduledAt: input.status === "scheduled" ? new Date(input.scheduledAt!) : null,
@@ -239,7 +251,7 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
 
       await tx
         .update(schema.posts)
-        .set({ categoryId: input.categoryId, featured: input.featured, pillar: input.pillar, coverImageUrl: input.coverImageUrl })
+        .set({ categoryId: input.categoryId, featured: input.featured, pillar: input.pillar, coverImageUrl: sharedCover })
         .where(eq(schema.posts.id, post.id));
     });
   } catch (error) {
@@ -267,7 +279,8 @@ export async function savePost(raw: SaveInput): Promise<SaveResult> {
     category: categoryName(post.categoryId),
     featured: post.featured,
     pillar: post.pillar,
-    coverImageUrl: post.coverImageUrl,
+    // The cover this language showed before the save.
+    coverImageUrl: existing.coverImageUrl ?? post.coverImageUrl,
   };
   const fields = getVersionChanges(before, {
     ...values,

@@ -139,7 +139,8 @@ function summary({ t, alternates }: Awaited<ReturnType<typeof loadLive>>[number]
       ? { id: category.id, name: categoryName(category, t.locale), slug: categorySlug(category, t.locale) }
       : null,
     featured: t.post.featured,
-    coverImageUrl: t.post.coverImageUrl,
+    // This language's own cover when it has one (its title in this language), else the article's.
+    coverImageUrl: t.coverImageUrl ?? t.post.coverImageUrl,
     coverImageAlt: t.coverImageAlt,
     publishedAt: liveDate(t).toISOString(),
     updatedAt: t.updatedAt.toISOString(),
@@ -164,7 +165,7 @@ export async function getPublicPost(siteId: string, locale: Locale, slug: string
     ...summary(row),
     metaTitle: t.metaTitle || t.title,
     metaDescription: t.metaDescription || t.excerpt,
-    ogImageUrl: t.ogImageUrl ?? t.post.coverImageUrl,
+    ogImageUrl: t.ogImageUrl ?? t.coverImageUrl ?? t.post.coverImageUrl,
     canonicalUrl: t.canonicalUrl,
     noindex: t.noindex,
     content,

@@ -58,7 +58,16 @@ import { SeoFixDialog } from "./editor/seo-fix-dialog";
 export type LocaleTab = { locale: Locale; status: PostStatus | null; stale: boolean };
 
 type Props = {
-  post: { id: string; categoryId: string | null; featured: boolean; pillar: boolean; coverImageUrl: string | null };
+  post: {
+    id: string;
+    categoryId: string | null;
+    featured: boolean;
+    pillar: boolean;
+    /** The cover this language shows: its own, or the article's. */
+    coverImageUrl: string | null;
+    /** The article's cover and the language it comes from, when this language may have its own instead. */
+    sharedCover: { url: string; locale: Locale } | null;
+  };
   locale: Locale;
   locales: LocaleTab[];
   translation: PostTranslation | null;
@@ -672,6 +681,31 @@ export function PostEditor({
                 onChange={edit(setCoverImageUrl)}
                 onError={setError}
               />
+              {post.sharedCover && (
+                <p className="mt-2 flex flex-wrap items-center gap-x-2 gap-y-1 text-xs text-zinc-500">
+                  {coverImageUrl.trim() && coverImageUrl.trim() !== post.sharedCover.url ? (
+                    <>
+                      <span>{fmt(t.editor.cover.ownHint, { language: t.common.locales[locale] })}</span>
+                      {!locked && (
+                        <button
+                          type="button"
+                          onClick={() => edit(setCoverImageUrl)(post.sharedCover?.url ?? "")}
+                          className="font-medium text-brand underline-offset-2 hover:underline"
+                        >
+                          {fmt(t.editor.cover.useShared, { shared: t.common.locales[post.sharedCover.locale] })}
+                        </button>
+                      )}
+                    </>
+                  ) : (
+                    <span>
+                      {fmt(t.editor.cover.sharedHint, {
+                        language: t.common.locales[locale],
+                        shared: t.common.locales[post.sharedCover.locale],
+                      })}
+                    </span>
+                  )}
+                </p>
+              )}
               {coverImageUrl.trim() && (
                 <label className="mt-2 flex items-center gap-2 text-xs text-zinc-500">
                   <span className="shrink-0 font-medium">{fmt(t.editor.cover.altLabel, { language: t.common.locales[locale] })}</span>
