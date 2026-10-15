@@ -64,6 +64,13 @@
       "when": 1791342374742,
       "tag": "0008_role_permissions",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791961654157,
+      "tag": "0009_translation_cover_image",
+      "breakpoints": true
     }
   ]
 }

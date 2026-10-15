@@ -132,6 +132,10 @@ const vi = {
     failed: "Tải ảnh bìa thất bại.",
     altLabel: "Mô tả ảnh bìa ({language})",
     altPlaceholder: "Ảnh có gì? Ví dụ: Lễ tân phòng khám đón khách tại quầy",
+    /** Shown in a language that has no cover of its own yet. */
+    sharedHint: "Bản {language} đang dùng chung ảnh bìa với bản {shared}. Tải ảnh khác để bản {language} có ảnh bìa riêng.",
+    ownHint: "Ảnh bìa riêng của bản {language}.",
+    useShared: "Dùng ảnh bìa của bản {shared}",
   },
   panel: {
     outline: "Mục lục",
@@ -555,6 +559,9 @@ const en: EditorDict = {
     failed: "Could not upload the cover image.",
     altLabel: "Cover description ({language})",
     altPlaceholder: "What does it show? For example: A clinic receptionist welcoming a client",
+    sharedHint: "The {language} version uses the {shared} cover. Upload another image to give the {language} version its own.",
+    ownHint: "The {language} version's own cover.",
+    useShared: "Use the {shared} cover",
 
   },
   panel: {
@@ -730,7 +737,7 @@ const en: EditorDict = {
     bullet: { label: "Bulleted list", description: "Points with bullets" },
     ordered: { label: "Numbered list", description: "Steps in order" },
     quote: { label: "Quote", description: "A quotation or a point to stress" },
-    image: { label: "Image from computer", description: "Upload an image, compressed to WebP" },
+    image: { label: "Image from computer", description: "Upload an image, compressed to WebP" },
     "stock-image": { label: "Free photo", description: "Find a free stock photo (Pexels)" },
     "image-url": { label: "Image from URL", description: "Use an image already online" },
     youtube: { label: "YouTube video", description: "Embed a video from YouTube" },

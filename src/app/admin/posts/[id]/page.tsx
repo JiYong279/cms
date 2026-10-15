@@ -96,7 +96,12 @@ export default async function EditPostPage({ params, searchParams }: PageProps<"
         categoryId: post.categoryId,
         featured: post.featured,
         pillar: post.pillar,
-        coverImageUrl: post.coverImageUrl,
+        coverImageUrl: translation?.coverImageUrl ?? post.coverImageUrl,
+        // Another language than the site's own shows the article's cover until it gets its own.
+        sharedCover:
+          locale !== post.site.defaultLocale && post.coverImageUrl
+            ? { url: post.coverImageUrl, locale: post.site.defaultLocale }
+            : null,
       }}
       locale={locale}
       locales={locales}
