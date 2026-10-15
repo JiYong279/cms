@@ -41,6 +41,20 @@ if (!qubxUp) {
   await wait(3000);
   check("article restored", s.ok && (await h1(`/blog/${post.slug}`)) === post.title);
 
+  // Each language has its own cover: the English one must not show (or replace) the Vietnamese one.
+  const viSlug = post.alternates?.vi;
+  const viCover = async () => viSlug && (await (await api(`/posts/${viSlug}?locale=vi`)).json()).post.coverImageUrl;
+  const viBefore = await viCover();
+  const enCover = "https://example.com/e2e-english-cover.png";
+  s = await admin.call(pageUrl, "savePost", [{ ...base, coverImageUrl: enCover }]);
+  const enAfter = (await (await api(`/posts/${post.slug}?locale=en`)).json()).post;
+  check("English version keeps its own cover", s.ok && enAfter.coverImageUrl === enCover, enAfter.coverImageUrl);
+  check("English share image is not the Vietnamese cover", !viBefore || enAfter.ogImageUrl !== viBefore, enAfter.ogImageUrl);
+  if (viSlug) check("Vietnamese cover stays as it was", (await viCover()) === viBefore, await viCover());
+  s = await admin.call(pageUrl, "savePost", [base]);
+  const restored = (await (await api(`/posts/${post.slug}?locale=en`)).json()).post.coverImageUrl;
+  check("English cover restored", s.ok && (restored ?? "") === base.coverImageUrl, restored);
+
   // A scheduled article goes live on its own once its time has passed.
   const created = await admin.submit("/admin", 'name="siteId"', { siteId: "qubx" });
   const postId = created.location?.match(/posts\/([0-9a-f-]{36})/)?.[1];
