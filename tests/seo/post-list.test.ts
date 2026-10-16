@@ -33,15 +33,20 @@ check("EN draft matches an article whose English is a draft", isLocaleMatch(both
 check("'not written' matches an article without that language", isLocaleMatch(viOnly, "en", "none") && !isLocaleMatch(both, "en", "none"));
 
 const day = (d: number) => new Date(Date.UTC(2026, 9, d));
+// `date`: a published on the 8th, c scheduled for the 20th, d planned for the 30th, b has none.
 const articles: (SortFields & { id: string })[] = [
-  { id: "a", title: "Báo cáo doanh thu", versions: [{ locale: "vi", status: "published" }], at: day(5) },
-  { id: "b", title: "an toàn dữ liệu", versions: [{ locale: "vi", status: "draft" }, { locale: "en", status: "draft" }], at: day(7) },
-  { id: "c", title: "Chỉ số spa", versions: [{ locale: "vi", status: "scheduled" }, { locale: "en", status: "published" }], at: day(6) },
-  { id: "d", title: "Ảnh bìa", versions: [{ locale: "vi", status: "in_review" }], at: day(4) },
+  { id: "a", title: "Báo cáo doanh thu", versions: [{ locale: "vi", status: "published" }], at: day(5), date: day(8) },
+  { id: "b", title: "an toàn dữ liệu", versions: [{ locale: "vi", status: "draft" }, { locale: "en", status: "draft" }], at: day(7), date: null },
+  { id: "c", title: "Chỉ số spa", versions: [{ locale: "vi", status: "scheduled" }, { locale: "en", status: "published" }], at: day(6), date: day(20) },
+  { id: "d", title: "Ảnh bìa", versions: [{ locale: "vi", status: "in_review" }], at: day(4), date: day(30) },
 ];
 const ids = (sorted: { id: string }[]) => sorted.map((a) => a.id).join("");
 const collator = new Intl.Collator("vi", { sensitivity: "base", numeric: true });
-const sortedBy = (key: "title" | "vi" | "en" | "updated", dir: "asc" | "desc") => ids(sortArticles(articles, { key, dir }, (a) => a, collator));
+const sortedBy = (key: "title" | "vi" | "en" | "date" | "updated", dir: "asc" | "desc") => ids(sortArticles(articles, { key, dir }, (a) => a, collator));
+
+check("the date column starts newest first", getSort("date", undefined).dir === "desc");
+check("dates newest first, articles without a date last", sortedBy("date", "desc") === "dcab", sortedBy("date", "desc"));
+check("dates oldest first, articles without a date still last", sortedBy("date", "asc") === "acdb", sortedBy("date", "asc"));
 
 check("newest change first by default", sortedBy("updated", "desc") === "bcad", sortedBy("updated", "desc"));
 check("oldest first", sortedBy("updated", "asc") === "dacb", sortedBy("updated", "asc"));
@@ -52,7 +57,7 @@ check("VI reversed", sortedBy("vi", "desc") === "acdb", sortedBy("vi", "desc"));
 // Same EN status (not written): the most recently changed comes first.
 check("EN: missing versions last, ties newest first", sortedBy("en", "asc") === "bcad", sortedBy("en", "asc"));
 check("sorting returns a copy", ids(articles) === "abcd");
-const untitled = [...articles, { id: "e", title: "", versions: [], at: day(8) }];
+const untitled = [...articles, { id: "e", title: "", versions: [], at: day(8), date: null }];
 check("untitled articles come after the titled ones", ids(sortArticles(untitled, { key: "title", dir: "asc" }, (a) => a, collator)) === "bdace");
 
 console.log(failures ? `${failures} check(s) FAILED` : "All checks passed");

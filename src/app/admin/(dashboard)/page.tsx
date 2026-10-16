@@ -117,13 +117,35 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
   );
   const mainOf = (p: (typeof everything)[number]) =>
     p.translations.find((tr) => tr.locale === p.site.defaultLocale) ?? p.translations[0];
+  /** The posting date the list shows, from the site's own language: published, scheduled, or only planned. */
+  const dateOf = (p: (typeof everything)[number]): { at: Date; kind: PostRow["dateKind"] } | null => {
+    const main = mainOf(p);
+    if (main?.status === "published" && main.publishedAt) return { at: main.publishedAt, kind: "published" };
+    if (main?.status === "scheduled" && main.scheduledAt) return { at: main.scheduledAt, kind: "scheduled" };
+    // A plan is a day, not a moment: noon UTC stays on that day in every time zone.
+    if (p.plannedFor) return { at: new Date(`${p.plannedFor}T12:00:00Z`), kind: "planned" };
+    return null;
+  };
   const shown = sortArticles(
     matching,
     sort,
-    // In the trash, the date column is when the article was deleted.
-    (p) => ({ title: mainOf(p)?.title ?? "", versions: p.translations, at: (view === "trash" && p.deletedAt) || p.updatedAt }),
+    // In the trash, the "Updated" column is when the article was deleted.
+    (p) => ({
+      title: mainOf(p)?.title ?? "",
+      versions: p.translations,
+      at: (view === "trash" && p.deletedAt) || p.updatedAt,
+      date: dateOf(p)?.at ?? null,
+    }),
     new Intl.Collator(t.common.dateLocale, { sensitivity: "base", numeric: true }),
   );
+  const dayFormat = new Intl.DateTimeFormat(t.common.dateLocale, { day: "2-digit", month: "2-digit", year: "numeric", timeZone });
+  const timeFormat = new Intl.DateTimeFormat(t.common.dateLocale, { hour: "2-digit", minute: "2-digit", hourCycle: "h23", timeZone });
+  const dateLabel = (date: NonNullable<ReturnType<typeof dateOf>>) =>
+    date.kind === "scheduled"
+      ? fmt(t.posts.table.scheduledOn, { date: `${dayFormat.format(date.at)} ${timeFormat.format(date.at)}` })
+      : date.kind === "planned"
+        ? fmt(t.posts.table.plannedOn, { date: dayFormat.format(date.at) })
+        : dayFormat.format(date.at);
   const sortLinks = Object.fromEntries(
     SORT_KEYS.map((key: SortKey) => [
       key,
@@ -139,6 +161,7 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
   const rows: PostRow[] = shown.map((post) => {
     const main = mainOf(post);
     const locale = main?.locale ?? post.site.defaultLocale;
+    const date = dateOf(post);
     return {
       id: post.id,
       title: main?.title || "",
@@ -161,6 +184,8 @@ export default async function PostsPage({ searchParams }: PageProps<"/admin">) {
       }),
       publicUrl:
         main?.status === "published" ? `${viewOrigin(post.site)}${post.site.blogPaths[locale]}/${main.slug}` : null,
+      dateLabel: date ? dateLabel(date) : null,
+      dateKind: date?.kind ?? null,
       updatedLabel: relativeTime(post.updatedAt, t, timeZone),
       trashedLabel: post.deletedAt
         ? `${relativeTime(post.deletedAt, t, timeZone)}${post.deletedBy ? ` · ${userNames.get(post.deletedBy) ?? "?"}` : ""}`

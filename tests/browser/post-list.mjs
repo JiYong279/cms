@@ -65,6 +65,16 @@ try {
   await page.evaluate(() => document.querySelector("table")?.scrollIntoView({ block: "start" }));
   await page.screenshot({ path: `${OUT}list-01-sorted-by-vi.png` });
 
+  // Posting date: newest first, articles without a date ("—") last.
+  await clickHeader("Ngày đăng");
+  const dates = await page.$$eval("tbody td[data-date]", (cells) => cells.map((c) => c.dataset.date));
+  const firstNone = dates.indexOf("none");
+  expect("clicking Ngày đăng sorts by date, newest first", params().get("sort") === "date" && params().get("dir") === "desc");
+  expect("articles without a date come last", firstNone === -1 || dates.slice(firstNone).every((d) => d === "none"), dates.join(","));
+  expect("published dates read as a day", (await page.$$eval('tbody td[data-date="published"]', (c) => c.map((x) => x.textContent.trim()))).every((s) => /^\d{2}\/\d{2}\/\d{4}$/.test(s)));
+  await page.evaluate(() => document.querySelector("table")?.scrollIntoView({ block: "start" }));
+  await page.screenshot({ path: `${OUT}list-03-sorted-by-posting-date.png` });
+
   await clickHeader("Bài viết");
   // Untitled articles ("Chưa có tiêu đề", in italics) come last; compare the titled ones.
   const titles = await page.$$eval("tbody tr td:nth-child(2) span.line-clamp-1", (spans) =>

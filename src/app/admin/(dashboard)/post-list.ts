@@ -5,13 +5,13 @@ import type { Locale, PostStatus } from "@/db/schema";
  * (?sort=vi&dir=asc&en=draft), so a filtered, sorted list can be bookmarked or shared.
  */
 
-export const SORT_KEYS = ["title", "vi", "en", "updated"] as const;
+export const SORT_KEYS = ["title", "vi", "en", "date", "updated"] as const;
 export type SortKey = (typeof SORT_KEYS)[number];
 export type SortDir = "asc" | "desc";
 export type Sort = { key: SortKey; dir: SortDir };
 
-/** What a column sorts by first when clicked: titles A→Z, statuses in workflow order, newest first. */
-const FIRST_DIR: Record<SortKey, SortDir> = { title: "asc", vi: "asc", en: "asc", updated: "desc" };
+/** What a column sorts by first when clicked: titles A→Z, statuses in workflow order, dates newest first. */
+const FIRST_DIR: Record<SortKey, SortDir> = { title: "asc", vi: "asc", en: "asc", date: "desc", updated: "desc" };
 export const DEFAULT_SORT: Sort = { key: "updated", dir: "desc" };
 
 /** Workflow order; a language not written yet comes last. */
@@ -53,10 +53,13 @@ export function isLocaleMatch(versions: Version[], locale: Locale, filter: Local
   return filter === "none" ? !status : status === filter;
 }
 
-/** What sorting needs from an article. */
-export type SortFields = { title: string; versions: Version[]; at: Date };
+/**
+ * What sorting needs from an article. `date`: when readers see it published, or when it is
+ * scheduled or planned to be; null when it has none.
+ */
+export type SortFields = { title: string; versions: Version[]; at: Date; date: Date | null };
 
-/** A sorted copy. Ties keep the most recently changed first. */
+/** A sorted copy. Ties keep the most recently changed first; articles without a date come last. */
 export function sortArticles<T>(items: T[], sort: Sort, read: (item: T) => SortFields, collator: Intl.Collator): T[] {
   const sign = sort.dir === "asc" ? 1 : -1;
   const rank = (f: SortFields, locale: Locale) => {
@@ -67,10 +70,16 @@ export function sortArticles<T>(items: T[], sort: Sort, read: (item: T) => SortF
     // Untitled articles come after the titled ones.
     if (sort.key === "title") return !a.title || !b.title ? Number(!a.title) - Number(!b.title) : collator.compare(a.title, b.title);
     if (sort.key === "vi" || sort.key === "en") return rank(a, sort.key) - rank(b, sort.key);
+    if (sort.key === "date") return (a.date?.getTime() ?? 0) - (b.date?.getTime() ?? 0);
     return a.at.getTime() - b.at.getTime();
   };
+  const newestFirst = (x: SortFields, y: SortFields) => y.at.getTime() - x.at.getTime();
   return items
     .map((item) => ({ item, f: read(item) }))
-    .sort((x, y) => sign * by(x.f, y.f) || y.f.at.getTime() - x.f.at.getTime())
+    .sort((x, y) =>
+      sort.key === "date" && (!x.f.date || !y.f.date)
+        ? Number(!x.f.date) - Number(!y.f.date) || newestFirst(x.f, y.f)
+        : sign * by(x.f, y.f) || newestFirst(x.f, y.f),
+    )
     .map((x) => x.item);
 }
