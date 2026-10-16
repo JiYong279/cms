@@ -40,6 +40,9 @@ export type PostRow = {
   /** `score`: the version's SEO score (0–100), null when it is not written yet. */
   locales: { locale: Locale; href: string; status: PostStatus | null; stale: boolean; score: number | null }[];
   publicUrl: string | null;
+  /** The posting date of the site's own language: when it went live, is scheduled, or is planned. */
+  dateLabel: string | null;
+  dateKind: "published" | "scheduled" | "planned" | null;
   updatedLabel: string;
   trashedLabel: string | null;
   canDelete: boolean;
@@ -175,7 +178,7 @@ export function PostTable({ rows, sortLinks, trash, canPurge, emptyTitle, emptyH
       )}
 
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[900px] text-left text-sm">
+        <table className="w-full min-w-[1000px] text-left text-sm">
           <thead className="text-xs text-zinc-500">
             <tr className="border-b border-zinc-100">
               <th className="w-10 py-3 pl-4">
@@ -192,6 +195,7 @@ export function PostTable({ rows, sortLinks, trash, canPurge, emptyTitle, emptyH
               <th className="px-3 py-3 font-medium">{t.author}</th>
               <SortHeader link={sortLinks.vi} label={dict.common.locales.vi} hint={fmt(t.sortStatus, { locale: "VI" })} />
               <SortHeader link={sortLinks.en} label={dict.common.locales.en} hint={fmt(t.sortStatus, { locale: "EN" })} />
+              <SortHeader link={sortLinks.date} label={t.postingDate} hint={t.sortPostingDate} />
               <SortHeader link={sortLinks.updated} label={trash ? t.deleted : t.updated} hint={t.sortDate} right />
               <th className="w-28 px-3 py-3" aria-label={t.actions} />
             </tr>
@@ -285,6 +289,15 @@ export function PostTable({ rows, sortLinks, trash, canPurge, emptyTitle, emptyH
                     )}
                   </td>
                 ))}
+                <td
+                  className={cn(
+                    "whitespace-nowrap px-3 py-3 text-xs tabular-nums",
+                    row.dateKind === "scheduled" ? "text-sky-700" : row.dateKind === "planned" ? "text-zinc-400" : "text-zinc-600",
+                  )}
+                  data-date={row.dateKind ?? "none"}
+                >
+                  {row.dateLabel ?? <span className="text-zinc-300">—</span>}
+                </td>
                 <td className="whitespace-nowrap px-3 py-3 text-right text-xs text-zinc-500">
                   {trash ? row.trashedLabel : row.updatedLabel}
                 </td>
